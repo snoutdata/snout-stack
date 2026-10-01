@@ -1,0 +1,9 @@
+SnoutData stack (the servers and Postgres extensions in this repository)
+Copyright 2026 Joel Oliver, operating as SnoutData
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Each component replaces an open-source server or extension that SnoutData Cloud ran
+before it. Where code or SQL from another project is ported rather than written anew, its
+own copyright and licence notice is reproduced in THIRD-PARTY-NOTICES.md beside this file,
+as that project's licence requires.
