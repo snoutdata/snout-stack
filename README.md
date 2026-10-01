@@ -20,6 +20,8 @@ kind of API work against it unchanged: point them at the gateway with the anon k
 | `images` | [snout-images](https://github.com/snoutdata/snout-images): image resizing for storage |
 | `metadata`, `setup`, `functions-deploy` | the shared servers' own small database, and two one-shot steps |
 
+**Size (estimated):** about 200 MB of memory running, and about 2 GB of disk for the images.
+
 ## Quickstart
 
 You need Docker with the Compose plugin (2.24 or later).
