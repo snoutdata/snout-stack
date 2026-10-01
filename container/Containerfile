@@ -1,0 +1,32 @@
+# The stack's build, test and security-check environment. Everything Rust here runs inside
+# this image, so nothing depends on a Rust toolchain on the machine it runs from.
+#
+# Versions are pinned. Bumping one is a deliberate commit.
+FROM docker.io/library/rust:1.98.1-bookworm
+
+ARG CARGO_DENY_VERSION=0.20.2
+ARG CARGO_AUDIT_VERSION=0.22.2
+ARG GITLEAKS_VERSION=8.18.4
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+		build-essential pkg-config ca-certificates git curl \
+	&& rm -rf /var/lib/apt/lists/*
+
+# The same gitleaks release the repo's on-demand security scan uses (.github/workflows/security-scan.yml).
+RUN arch="$(dpkg --print-architecture)"; case "$arch" in amd64) g=x64 ;; arm64) g=arm64 ;; *) exit 1 ;; esac; \
+	curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${g}.tar.gz" \
+		| tar -xz -C /usr/local/bin gitleaks
+
+RUN useradd --create-home --uid 1000 dev \
+	&& mkdir -p /cache/target /cache/advisory /usr/local/cargo/advisory-dbs \
+	&& chown -R dev:dev /cache /usr/local/cargo /usr/local/rustup
+
+USER dev
+ENV CARGO_TARGET_DIR=/cache/target
+
+RUN rustup component add clippy rustfmt \
+	&& cargo install --locked cargo-deny --version "${CARGO_DENY_VERSION}" \
+	&& cargo install --locked cargo-audit --version "${CARGO_AUDIT_VERSION}"
+
+WORKDIR /work
+ENV USER=dev

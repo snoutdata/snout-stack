@@ -1,0 +1,67 @@
+[package]
+name = "snout-stack"
+description = "snout-stack: the whole stack on one machine with docker compose. Writes its secrets, sets up its database, and is its front door."
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/snoutdata/snout-stack"
+rust-version = "1.98.1"
+publish = false
+
+[[bin]]
+name = "snout-stack"
+path = "src/main.rs"
+
+[dependencies]
+# The front door (gateway.rs): one port, every service behind it, websockets passed through.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "io-util", "fs"] }
+hyper = { version = "1", features = ["server", "client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http1"] }
+http-body-util = "0.1"
+bytes = "1"
+
+# setup.rs: the project's database, as the pod's superuser, and the two admin APIs.
+tokio-postgres = "0.7"
+
+# Keys (keys.rs): HS256 tokens, key hashes, derived passwords, random secrets.
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+getrandom = "0.4"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+percent-encoding = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "json", "ansi"] }
+
+
+# Written out from the stack workspace by scripts/assemble.sh.
+[lints.rust]
+# X13: no `unsafe` outside the pgrx boundary. The three extensions under ext/ opt out in
+# their own Cargo.toml when pgrx arrives, and nowhere else may.
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# For iterating on a build host: release speed without fat LTO's link time. Numbers that are
+# reported (sizes, the bench) come from `release`, never from this.
+[profile.fast]
+inherits = "release"
+lto = "off"
+codegen-units = 16
+incremental = true
+
+# Its own workspace: this repository is not part of any other.
+[workspace]

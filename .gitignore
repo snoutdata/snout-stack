@@ -1,0 +1,8 @@
+/target/
+/fuzz/target/
+/fuzz/corpus/
+/fuzz/artifacts/
+# A run against a laptop is a smoke test of the rig, never a result (X9).
+bench/results/*-local.md
+bench/.work/
+/.work/

@@ -1,0 +1,4 @@
+[toolchain]
+# Must match the rust image tag in container/Containerfile.
+channel = "1.98.1"
+components = ["clippy", "rustfmt"]

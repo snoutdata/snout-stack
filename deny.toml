@@ -1,0 +1,41 @@
+# What a dependency may be (X13, Q5). Run by scripts/check.sh and the pre-push hook.
+
+[graph]
+all-features = true
+
+# Every licence here is compatible with shipping the stack under Apache-2.0. A copyleft
+# licence (GPL, AGPL, LGPL, MPL, SSPL) or a source-available one (BSL, Elastic) fails the
+# check: a dependency must never dictate the stack's own licence (Q5).
+[licenses]
+allow = [
+	"MIT",
+	"MIT-0",
+	# Zero-clause BSD: public-domain equivalent (quoted_printable, the mail encoder).
+	"0BSD",
+	"Apache-2.0",
+	"Apache-2.0 WITH LLVM-exception",
+	"BSD-2-Clause",
+	"BSD-3-Clause",
+	"ISC",
+	"Zlib",
+	"Unicode-3.0",
+	"CDLA-Permissive-2.0",
+	"PostgreSQL",
+]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+
+# Known vulnerabilities and unmaintained crates, from the RustSec database.
+[advisories]
+unmaintained = "workspace"
+yanked = "deny"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+# Crates come from crates.io and nowhere else. A git dependency is a decision, made here.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

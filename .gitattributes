@@ -1,0 +1,2 @@
+# Migrations are hashed byte for byte by the ledger in every database: never let a checkout rewrite them.
+migrations/** -text

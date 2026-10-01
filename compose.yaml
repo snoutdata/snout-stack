@@ -1,0 +1,313 @@
+# The whole stack on one machine: a Postgres project with auth, the data API, GraphQL, storage,
+# Realtime and functions, behind one gateway.
+#
+#   docker run --rm ghcr.io/snoutdata/snout-stack:0.1.0 init > .env
+#   docker compose up -d
+#
+# Every secret comes from .env, which `snout-stack init` writes; there is no default key in this
+# file, and a missing value stops `docker compose up` with a sentence. README.md is the guide.
+#
+# The layout is a hosted project's. `db` is the project's database; auth, the data API and setup
+# share its network namespace, so they reach Postgres on 127.0.0.1, as sidecars do in a pod. The
+# servers that are shared between projects in the hosted service (storage, Realtime, functions,
+# image rendering) run beside it with their own small metadata database, holding this one
+# project.
+
+name: snout-stack
+
+services:
+  # ---- The project's database: Postgres 17 with the extensions, the roles and the auth helpers.
+  db:
+    image: ${SNOUT_POD_IMAGE:-ghcr.io/snoutdata/snoutpod-postgres:17}
+    command: snoutpod-postgres
+    restart: unless-stopped
+    environment:
+      SNOUTPOD_REF: ${SNOUT_REF:?SNOUT_REF is not set. Run snout-stack init first (README.md)}
+      SNOUTPOD_OWNER_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?run snout-stack init first}
+      POSTGRES_USER: snoutpod_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run snout-stack init first}
+      POSTGRES_DB: postgres
+      # pg_net is offered: its worker itself refuses private, loopback and link-local addresses
+      # (the cloud metadata service among them), so a query cannot reach this machine's network.
+      SNOUTPOD_EGRESS: denied
+      SNOUTPOD_SHARED_BUFFERS: ${DB_SHARED_BUFFERS:-128MB}
+      SNOUTPOD_WORK_MEM: ${DB_WORK_MEM:-4MB}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      # Connect as <SNOUT_REF>_owner with POSTGRES_OWNER_PASSWORD. This machine only, unless
+      # DB_BIND says otherwise.
+      - ${DB_BIND:-127.0.0.1}:${DB_PORT:-5432}:5432
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "snoutpod_admin", "-d", "postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  # ---- One-shot: role passwords, Realtime's grants, the storage bucket, and the project
+  # registered with storage and Realtime. Runs on every `up`; every step is idempotent.
+  setup:
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.0
+    command: setup
+    network_mode: service:db
+    user: "65532:65532"
+    restart: "no"
+    environment:
+      SNOUT_REF: ${SNOUT_REF}
+      JWT_SECRET: ${JWT_SECRET:?run snout-stack init first}
+      ANON_KEY: ${ANON_KEY:?run snout-stack init first}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?run snout-stack init first}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?run snout-stack init first}
+      REST_DB_PASSWORD: ${REST_DB_PASSWORD:?run snout-stack init first}
+      STORAGE_ADMIN_API_KEY: ${STORAGE_ADMIN_API_KEY:?run snout-stack init first}
+      REALTIME_API_JWT_SECRET: ${REALTIME_API_JWT_SECRET:?run snout-stack init first}
+      STORAGE_FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT:-52428800}
+      S3_CREATE_BUCKET: ${S3_CREATE_BUCKET:-true}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://objects:7070}
+      S3_BUCKET: ${S3_BUCKET:-stack}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?run snout-stack init first}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?run snout-stack init first}
+    depends_on:
+      db:
+        condition: service_healthy
+      storage:
+        condition: service_started
+      realtime:
+        condition: service_started
+      objects:
+        condition: service_started
+        required: false
+
+  # ---- Auth: sign-up, sign-in, sessions, MFA, OAuth and SAML, users kept in the `auth` schema.
+  auth:
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-auth:0.1.4
+    network_mode: service:db
+    restart: unless-stopped
+    environment:
+      PORT: "9999"
+      AUTH_API_HOST: 0.0.0.0
+      AUTH_DB_DATABASE_URL: postgres://snout_auth_admin:${AUTH_DB_PASSWORD}@127.0.0.1:5432/${SNOUT_REF}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      AUTH_JWT_EXP: ${AUTH_JWT_EXP:-3600}
+      AUTH_JWT_ISSUER: ${API_EXTERNAL_URL:?run snout-stack init first}/auth/v1
+      AUTH_JWT_AUD: authenticated
+      AUTH_JWT_DEFAULT_GROUP_NAME: authenticated
+      AUTH_JWT_ADMIN_ROLES: service_role
+      AUTH_SITE_URL: ${SITE_URL:?run snout-stack init first}
+      AUTH_API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+      AUTH_URI_ALLOW_LIST: ${AUTH_URI_ALLOW_LIST:-}
+      AUTH_DISABLE_SIGNUP: ${AUTH_DISABLE_SIGNUP:-false}
+      AUTH_MAILER_AUTOCONFIRM: ${AUTH_MAILER_AUTOCONFIRM:-false}
+      AUTH_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+      AUTH_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+      AUTH_MAILER_URLPATHS_INVITE: /auth/v1/verify
+      AUTH_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+      AUTH_SMTP_HOST: ${SMTP_HOST:-}
+      AUTH_SMTP_PORT: ${SMTP_PORT:-587}
+      AUTH_SMTP_USER: ${SMTP_USER:-}
+      AUTH_SMTP_PASS: ${SMTP_PASS:-}
+      AUTH_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-}
+      AUTH_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME:-}
+      # The caller's address, written by the gateway from the socket: per-caller limits key on it.
+      AUTH_RATE_LIMIT_HEADER: x-snoutdata-client
+      AUTH_EXTERNAL_GOOGLE_ENABLED: ${GOOGLE_ENABLED:-false}
+      AUTH_EXTERNAL_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      AUTH_EXTERNAL_GOOGLE_SECRET: ${GOOGLE_SECRET:-}
+      AUTH_EXTERNAL_GOOGLE_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
+      AUTH_EXTERNAL_GITHUB_ENABLED: ${GITHUB_ENABLED:-false}
+      AUTH_EXTERNAL_GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      AUTH_EXTERNAL_GITHUB_SECRET: ${GITHUB_SECRET:-}
+      AUTH_EXTERNAL_GITHUB_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
+      AUTH_SAML_ENABLED: ${SAML_ENABLED:-false}
+      AUTH_SAML_PRIVATE_KEY: ${SAML_PRIVATE_KEY:-}
+      AUTH_SAML_EXTERNAL_URL: ${API_EXTERNAL_URL}/auth/v1
+      AUTH_LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  # ---- The data API (REST) and GraphQL, which is a Postgres function the data API calls.
+  rest:
+    image: docker.io/postgrest/postgrest:v14.12 # pins-allow: held to the platform's pin by a test
+    network_mode: service:db
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${REST_DB_PASSWORD}@127.0.0.1:5432/${SNOUT_REF}
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_JWT_ROLE_CLAIM_KEY: .role
+      PGRST_DB_SCHEMAS: ${REST_SCHEMAS:-public, graphql_public}
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_POOL: ${REST_DB_POOL:-10}
+      PGRST_DB_CHANNEL_ENABLED: "true"
+      PGRST_DB_CHANNEL: pgrst
+      PGRST_SERVER_HOST: "*4"
+      PGRST_SERVER_PORT: "3000"
+      PGRST_OPENAPI_SERVER_PROXY_URI: ${API_EXTERNAL_URL}/rest/v1
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  # ---- The metadata database of storage and Realtime: which projects they serve, and how.
+  metadata:
+    image: docker.io/library/postgres:17-alpine # pins-allow: held to the platform's pin by a test
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${METADATA_DB_PASSWORD:?run snout-stack init first}
+      POSTGRES_DB: realtime
+    configs:
+      - source: metadata-storage-db
+        target: /docker-entrypoint-initdb.d/10-storage.sql
+    volumes:
+      - metadata-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  # ---- Storage: buckets and files, every operation decided by the project's own policies.
+  storage:
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-storage:0.2.2
+    restart: unless-stopped
+    environment:
+      DATABASE_MULTITENANT_URL: postgres://postgres:${METADATA_DB_PASSWORD}@metadata:5432/storage
+      SERVER_ADMIN_API_KEYS: ${STORAGE_ADMIN_API_KEY}
+      SERVER_ADMIN_PORT: "5001"
+      AUTH_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:?run snout-stack init first}
+      REQUEST_X_FORWARDED_HOST_REGEXP: '^([a-z][a-z0-9]{12})\.'
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      DB_INSTALL_ROLES: "false"
+      UPLOAD_FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT:-52428800}
+      STORAGE_S3_ENDPOINT: ${S3_ENDPOINT:-http://objects:7070}
+      STORAGE_S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      STORAGE_S3_BUCKET: ${S3_BUCKET:-stack}
+      STORAGE_S3_REGION: ${S3_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      # Resized images, when the `images` profile runs; without it a render request is refused.
+      IMGPROXY_URL: http://images:8080
+    depends_on:
+      metadata:
+        condition: service_healthy
+
+  # ---- Realtime: broadcast, presence and database changes over WebSockets.
+  realtime:
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.0
+    restart: unless-stopped
+    environment:
+      DB_HOST: metadata
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: ${METADATA_DB_PASSWORD}
+      DB_NAME: realtime
+      API_JWT_SECRET: ${REALTIME_API_JWT_SECRET}
+      METRICS_JWT_SECRET: ${REALTIME_METRICS_JWT_SECRET:?run snout-stack init first}
+      DB_ENC_KEY: ${REALTIME_DB_ENC_KEY:?run snout-stack init first}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      metadata:
+        condition: service_healthy
+
+  # ---- One-shot: functions/<name>/index.ts laid out for the runtime, imports bundled.
+  # Again after a change: docker compose run --rm functions-deploy
+  functions-deploy:
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.0
+    command: functions
+    restart: "no"
+    environment:
+      SNOUT_REF: ${SNOUT_REF}
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      FUNCTIONS_MEMORY_MB: ${FUNCTIONS_MEMORY_MB:-256}
+      FUNCTIONS_WALL_MS: ${FUNCTIONS_WALL_MS:-60000}
+      FUNCTIONS_CPU_MS: ${FUNCTIONS_CPU_MS:-5000}
+    volumes:
+      - ./functions:/functions:ro
+      - functions-mount:/snoutfn
+
+  # ---- Functions: TypeScript on Deno's web platform, each request in a V8 isolate. On a network
+  # of its own with the gateway, so a function reaches the internet and this stack's API, and not
+  # the databases or the servers' admin ports.
+  functions:
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-functions:0.2.0
+    restart: unless-stopped
+    # Every function shares this container's memory; past 85% of it the runtime makes room by
+    # stopping idle workers rather than letting the kernel stop the container.
+    mem_limit: ${FUNCTIONS_CONTAINER_MEMORY:-1g}
+    environment:
+      SNOUT_FUNCTIONS_DOOR_SECRET: ${FUNCTIONS_DOOR_SECRET:?run snout-stack init first}
+    volumes:
+      - functions-mount:/snoutfn:ro
+    networks:
+      - functions
+    depends_on:
+      functions-deploy:
+        condition: service_completed_successfully
+
+  # ---- The front door: one port, every service behind it, the keys checked here.
+  gateway:
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.0
+    command: gateway
+    user: "65532:65532"
+    restart: unless-stopped
+    environment:
+      SNOUT_REF: ${SNOUT_REF}
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      FUNCTIONS_DOOR_SECRET: ${FUNCTIONS_DOOR_SECRET}
+      # Functions callable with no key (a webhook's receiver), comma separated.
+      FUNCTIONS_NO_VERIFY_JWT: ${FUNCTIONS_NO_VERIFY_JWT:-}
+      # Behind a TLS proxy, the header it writes the caller's address into (e.g. x-real-ip).
+      GATEWAY_CLIENT_ADDRESS_HEADER: ${GATEWAY_CLIENT_ADDRESS_HEADER:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - ${API_BIND:-0.0.0.0}:${API_PORT:-8000}:8000
+    networks:
+      - default
+      - functions
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  # ---- Optional, on by default (COMPOSE_PROFILES in .env) ----
+
+  # The object store files are kept in: an S3 API over a folder on this machine. Leave it out of
+  # COMPOSE_PROFILES to use your own S3 (S3_ENDPOINT and the rest in .env).
+  objects:
+    image: docker.io/versity/versitygw:v1.8.0
+    profiles: [objects]
+    restart: unless-stopped
+    environment:
+      ROOT_ACCESS_KEY: ${S3_ACCESS_KEY}
+      ROOT_SECRET_KEY: ${S3_SECRET_KEY}
+      VGW_BACKEND: posix
+      VGW_BACKEND_ARGS: /data/s3
+      VGW_PORT: ":7070"
+      VGW_QUIET: "true"
+    volumes:
+      - objects-data:/data/s3
+
+  # Resizes and converts images for storage's render endpoint.
+  images:
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-images:0.1.0
+    profiles: [images]
+    restart: unless-stopped
+
+configs:
+  metadata-storage-db:
+    content: |
+      create database storage;
+
+networks:
+  default: {}
+  functions: {}
+
+volumes:
+  db-data: {}
+  metadata-data: {}
+  objects-data: {}
+  functions-mount: {}
