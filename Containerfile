@@ -24,7 +24,7 @@ FROM docker.io/denoland/deno:${DENO_TAG}
 COPY --from=build /snout-stack /usr/local/bin/snout-stack
 ENV SNOUT_STACK_DENO=/bin/deno DENO_DIR=/tmp/deno
 EXPOSE 8000
-# How SnoutData Desktop's "Find databases" knows this container is part of the SnoutData stack
+# How SnoutData Studio's "Find databases" knows this container is part of the SnoutData stack
 # (docs/desktop/DISCOVERY.md): by label, never by guessing from the image name.
 LABEL com.snoutdata.stack="1" com.snoutdata.component="stack"
 ENTRYPOINT ["/usr/local/bin/snout-stack"]
