@@ -139,14 +139,12 @@ pub fn service_for_path(path_and_query: &str) -> Option<Match> {
 	None
 }
 
-/// Paths a browser reaches with no header of its own: the sign-in flow (links from a mail
-/// client, redirects from an identity provider) and a presigned download, whose URL is the
-/// credential.
+/// Paths a browser reaches with no header of its own: the sign-in flow's redirects (links from a
+/// mail client, an identity provider sending the browser back) and a presigned download, whose URL
+/// is the credential. Signing in, signing up and recovering are NOT here: every client sends the
+/// key with them, and with them open a rotated key still signed people in.
 const OPEN_AUTH_PATHS: &[&str] = &[
-	"/auth/v1/signup",
-	"/auth/v1/token",
 	"/auth/v1/verify",
-	"/auth/v1/recover",
 	"/auth/v1/authorize",
 	"/auth/v1/callback",
 	"/auth/v1/sso/saml/acs",
@@ -523,7 +521,9 @@ mod tests {
 
 	#[test]
 	fn open_paths_are_the_sign_in_flow_and_presigned_reads() {
-		assert!(is_open_path("POST", "/auth/v1/token?grant_type=password"));
+		assert!(!is_open_path("POST", "/auth/v1/token?grant_type=password"));
+		assert!(!is_open_path("POST", "/auth/v1/signup"));
+		assert!(!is_open_path("POST", "/auth/v1/recover"));
 		assert!(is_open_path("GET", "/auth/v1/verify?token=x"));
 		assert!(!is_open_path("GET", "/auth/v1/user"));
 		assert!(!is_open_path("POST", "/auth/v1/tokenx"));
