@@ -94,6 +94,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 		fs::create_dir_all(dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
 	}
 	let builder = builder_identity(&deno);
+	let open = env::list("FUNCTIONS_NO_VERIFY_JWT");
 
 	let mut deployed = Vec::new();
 	let mut failed = Vec::new();
@@ -111,14 +112,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
 				failed.push(name.clone());
 			}
 		}
-		deployed.push(serde_json::json!({ "name": name, "digest": digest }));
+		deployed.push(deployed_function(name, &digest, &open));
 	}
 
-	let manifest = serde_json::json!({
+	let mut manifest = serde_json::json!({
 		"functions": deployed,
 		"limits": limits()?,
 		"env": variables,
 	});
+	// The runtime checks a key-required function's token against it (snout-functions 0.2.2).
+	// Beside `env`, never in it, so no function can read it.
+	if let Some(secret) = env::optional("JWT_SECRET") {
+		manifest["jwtSecret"] = serde_json::Value::String(secret);
+	}
 	write_atomically(
 		&projects.join(format!("{reference}.json")),
 		&serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
@@ -338,6 +344,13 @@ fn platform_env() -> Result<BTreeMap<String, String>, String> {
 	Ok(out)
 }
 
+/// One function as the manifest names it. `verifyJwt` is false only for a function the gateway lets
+/// through with no key (`FUNCTIONS_NO_VERIFY_JWT`, a webhook's receiver): every other one is run
+/// only for a token signed with this stack's secret.
+fn deployed_function(name: &str, digest: &str, open: &[String]) -> serde_json::Value {
+	serde_json::json!({ "name": name, "digest": digest, "verifyJwt": !open.iter().any(|o| o == name) })
+}
+
 fn limits() -> Result<serde_json::Value, String> {
 	Ok(serde_json::json!({
 		"memoryMb": env::number::<u32>("FUNCTIONS_MEMORY_MB", 256)?,
@@ -471,6 +484,14 @@ mod tests {
 		);
 		assert!(parse_dotenv("1BAD=x").is_err());
 		assert!(parse_dotenv("no equals").is_err());
+	}
+
+	#[test]
+	fn a_function_needs_a_signed_token_unless_it_is_listed_open() {
+		let open = vec!["stripe-webhook".to_owned()];
+		assert_eq!(deployed_function("hello", "d", &open)["verifyJwt"], true);
+		assert_eq!(deployed_function("stripe-webhook", "d", &open)["verifyJwt"], false);
+		assert_eq!(deployed_function("stripe", "d", &open)["verifyJwt"], true);
 	}
 
 	#[test]
