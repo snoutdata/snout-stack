@@ -82,7 +82,7 @@ services:
 
   # ---- Auth: sign-up, sign-in, sessions, MFA, OAuth and SAML, users kept in the `auth` schema.
   auth:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-auth:0.1.4
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-auth:0.1.5
     network_mode: service:db
     restart: unless-stopped
     environment:
