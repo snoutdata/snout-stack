@@ -1,7 +1,7 @@
 # The whole stack on one machine: a Postgres project with auth, the data API, GraphQL, storage,
 # Realtime and functions, behind one gateway.
 #
-#   docker run --rm ghcr.io/snoutdata/snout-stack:0.1.2 init > .env
+#   docker run --rm ghcr.io/snoutdata/snout-stack:0.1.3 init > .env
 #   docker compose up -d
 #
 # Every secret comes from .env, which `snout-stack init` writes; there is no default key in this
@@ -48,7 +48,7 @@ services:
   # ---- One-shot: role passwords, Realtime's grants, the storage bucket, and the project
   # registered with storage and Realtime. Runs on every `up`; every step is idempotent.
   setup:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.2
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.3
     command: setup
     network_mode: service:db
     user: "65532:65532"
@@ -214,7 +214,7 @@ services:
   # ---- One-shot: functions/<name>/index.ts laid out for the runtime, imports bundled.
   # Again after a change: docker compose run --rm functions-deploy
   functions-deploy:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.2
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.3
     command: functions
     restart: "no"
     environment:
@@ -252,7 +252,7 @@ services:
 
   # ---- The front door: one port, every service behind it, the keys checked here.
   gateway:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.2
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.3
     command: gateway
     user: "65532:65532"
     restart: unless-stopped
