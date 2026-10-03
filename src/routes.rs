@@ -174,7 +174,10 @@ pub fn is_open_path(method: &str, path_and_query: &str) -> bool {
 	if OPEN_AUTH_PATHS.iter().any(|open| under(path, open)) {
 		return true;
 	}
-	// Minting a signed URL (POST) is authorised; redeeming one (GET) is not.
+	// Minting a signed URL (POST) is authorised; redeeming one (GET, or PUT for an upload) is not.
+	if method.eq_ignore_ascii_case("PUT") {
+		return path.starts_with("/storage/v1/object/upload/sign/");
+	}
 	let reading = method.eq_ignore_ascii_case("GET") || method.eq_ignore_ascii_case("HEAD");
 	reading && OPEN_STORAGE_READS.iter().any(|open| path.starts_with(open))
 }
@@ -528,6 +531,9 @@ mod tests {
 		assert!(!is_open_path("GET", "/auth/v1/user"));
 		assert!(!is_open_path("POST", "/auth/v1/tokenx"));
 		assert!(is_open_path("GET", "/storage/v1/object/sign/b/k?token=t"));
+		assert!(is_open_path("PUT", "/storage/v1/object/upload/sign/b/k?token=t"));
+		assert!(!is_open_path("POST", "/storage/v1/object/upload/sign/b/k"));
+		assert!(!is_open_path("PUT", "/storage/v1/object/b/k"));
 		assert!(
 			!is_open_path("POST", "/storage/v1/object/sign/b/k"),
 			"minting a signed URL needs a key"
