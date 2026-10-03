@@ -490,7 +490,10 @@ mod tests {
 	fn a_function_needs_a_signed_token_unless_it_is_listed_open() {
 		let open = vec!["stripe-webhook".to_owned()];
 		assert_eq!(deployed_function("hello", "d", &open)["verifyJwt"], true);
-		assert_eq!(deployed_function("stripe-webhook", "d", &open)["verifyJwt"], false);
+		assert_eq!(
+			deployed_function("stripe-webhook", "d", &open)["verifyJwt"],
+			false
+		);
 		assert_eq!(deployed_function("stripe", "d", &open)["verifyJwt"], true);
 	}
 

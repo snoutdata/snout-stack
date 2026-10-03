@@ -18,6 +18,7 @@ kind of API work against it unchanged: point them at the gateway with the anon k
 | `gateway` | this repository: the one public port, the key check, and the routing |
 | `objects` | an S3 API over a folder on this machine, where storage keeps files ([versitygw](https://github.com/versity/versitygw)) |
 | `images` | [snout-images](https://github.com/snoutdata/snout-images): image resizing for storage |
+| `push` | [snout-push](https://github.com/snoutdata/snout-push): push notifications to iPhone, Android and the web, at `/push/v1` |
 | `metadata`, `setup`, `functions-deploy` | the shared servers' own small database, and two one-shot steps |
 
 **Size (estimated):** about 200 MB of memory running, and about 2 GB of disk for the images.
@@ -28,7 +29,7 @@ You need Docker with the Compose plugin (2.24 or later).
 
 ```sh
 git clone https://github.com/snoutdata/snout-stack && cd snout-stack
-docker run --rm ghcr.io/snoutdata/snout-stack:0.1.3 init > .env
+docker run --rm ghcr.io/snoutdata/snout-stack:0.1.4 init > .env
 docker compose up -d --wait
 ```
 
@@ -88,8 +89,8 @@ Everything is in `.env`. `init` writes the secrets; the rest have defaults and c
 | `SITE_URL` | `http://localhost:3000` | Your application, where a user lands after a sign-in or confirmation link |
 | `API_BIND`, `API_PORT` | `0.0.0.0`, `8000` | Where the gateway is published |
 | `DB_BIND`, `DB_PORT` | `127.0.0.1`, `5432` | Where Postgres is published |
-| `SNOUT_POD_IMAGE` | `ghcr.io/snoutdata/snoutpod-postgres:18` | The database image. A stack set up on Postgres 17 sets `ghcr.io/snoutdata/snoutpod-postgres:17` here (see Upgrades) |
-| `COMPOSE_PROFILES` | `objects,images` | Remove `objects` to keep files in your own S3; remove `images` to run without image resizing |
+| `SNOUT_POD_IMAGE` | `ghcr.io/snoutdata/snoutpod-postgres:18` | The database image. A stack set up on Postgres 17 sets `ghcr.io/snoutdata/snoutpod-postgres:17` here and keeps it (see Upgrades) |
+| `COMPOSE_PROFILES` | `objects,images,push` | Remove `objects` to keep files in your own S3; remove `images` to run without image resizing; remove `push` to run without push notifications |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION` | the bundled store, `stack`, `us-east-1` | Your own S3 (AWS, R2, ...), with `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_CREATE_BUCKET=false`; make the bucket first |
 | `S3_FORCE_PATH_STYLE` | `true` | |
 | `STORAGE_FILE_SIZE_LIMIT` | `52428800` | The largest upload, in bytes |

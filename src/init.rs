@@ -66,8 +66,8 @@ pub fn fresh() -> Values {
 		pairs: vec![
 			(
 				"COMPOSE_PROFILES",
-				"objects,images".into(),
-				"Optional parts of the stack. `objects` is the bundled object store: remove it to keep files in your own S3 (see S3_ENDPOINT below). `images` renders resized images: remove it if you do not need that.",
+				"objects,images,push".into(),
+				"Optional parts of the stack. `objects` is the bundled object store: remove it to keep files in your own S3 (see S3_ENDPOINT below). `images` renders resized images: remove it if you do not need that. `push` sends push notifications to iPhone, Android and the web.",
 			),
 			(
 				"SNOUT_REF",
@@ -118,6 +118,16 @@ pub fn fresh() -> Values {
 				"REST_DB_PASSWORD",
 				keys::random(24),
 				"The data API's database role (authenticator).",
+			),
+			(
+				"PUSH_DB_PASSWORD",
+				keys::random(24),
+				"The push server's database role.",
+			),
+			(
+				"PUSH_VAPID_SUBJECT",
+				"mailto:admin@example.com".into(),
+				"Your contact, a mailto: or https: address, named in every web push request. Put your own.",
 			),
 			(
 				"METADATA_DB_PASSWORD",
@@ -190,7 +200,12 @@ mod tests {
 	use super::*;
 
 	/// Settings rather than secrets: the same in every stack until someone changes them.
-	const FIXED: [&str; 3] = ["COMPOSE_PROFILES", "S3_ENDPOINT", "S3_BUCKET"];
+	const FIXED: [&str; 4] = [
+		"COMPOSE_PROFILES",
+		"S3_ENDPOINT",
+		"S3_BUCKET",
+		"PUSH_VAPID_SUBJECT",
+	];
 
 	#[test]
 	fn every_value_is_fresh_and_the_keys_are_signed_with_the_secret() {
@@ -225,7 +240,7 @@ mod tests {
 			assert!(
 				value
 					.bytes()
-					.all(|b| b.is_ascii_alphanumeric() || b"-_.:/,".contains(&b)),
+					.all(|b| b.is_ascii_alphanumeric() || b"-_.:/,@".contains(&b)),
 				"{line}"
 			);
 		}

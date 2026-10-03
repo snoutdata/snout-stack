@@ -1,7 +1,7 @@
 # The whole stack on one machine: a Postgres project with auth, the data API, GraphQL, storage,
 # Realtime and functions, behind one gateway.
 #
-#   docker run --rm ghcr.io/snoutdata/snout-stack:0.1.3 init > .env
+#   docker run --rm ghcr.io/snoutdata/snout-stack:0.1.4 init > .env
 #   docker compose up -d
 #
 # Every secret comes from .env, which `snout-stack init` writes; there is no default key in this
@@ -50,7 +50,7 @@ services:
   # ---- One-shot: role passwords, Realtime's grants, the storage bucket, and the project
   # registered with storage and Realtime. Runs on every `up`; every step is idempotent.
   setup:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.3
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.4
     command: setup
     network_mode: service:db
     user: "65532:65532"
@@ -62,6 +62,8 @@ services:
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?run snout-stack init first}
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?run snout-stack init first}
       REST_DB_PASSWORD: ${REST_DB_PASSWORD:?run snout-stack init first}
+      # Push's role is made only when this is set; a stack made before push has none.
+      PUSH_DB_PASSWORD: ${PUSH_DB_PASSWORD:-}
       STORAGE_ADMIN_API_KEY: ${STORAGE_ADMIN_API_KEY:?run snout-stack init first}
       REALTIME_API_JWT_SECRET: ${REALTIME_API_JWT_SECRET:?run snout-stack init first}
       STORAGE_FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT:-52428800}
@@ -216,7 +218,7 @@ services:
   # ---- One-shot: functions/<name>/index.ts laid out for the runtime, imports bundled.
   # Again after a change: docker compose run --rm functions-deploy
   functions-deploy:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.3
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.4
     command: functions
     restart: "no"
     environment:
@@ -254,7 +256,7 @@ services:
 
   # ---- The front door: one port, every service behind it, the keys checked here.
   gateway:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.3
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.4
     command: gateway
     user: "65532:65532"
     restart: unless-stopped
@@ -301,6 +303,25 @@ services:
     image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-images:0.1.0
     profiles: [images]
     restart: unless-stopped
+
+  # Push notifications to iPhone, Android and the web, at /push/v1. Its devices, queue, log and
+  # provider keys are tables in the project's database, in the `push` schema.
+  push:
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-push:0.1.2
+    profiles: [push]
+    network_mode: service:db
+    restart: unless-stopped
+    environment:
+      PUSH_DATABASE_URL: postgres://snout_push_admin:${PUSH_DB_PASSWORD:-}@127.0.0.1:5432/${SNOUT_REF}
+      PUSH_JWT_SECRET: ${JWT_SECRET}
+      PUSH_VAPID_SUBJECT: ${PUSH_VAPID_SUBJECT:-}
+      # One project on its own machine: a future send_at and long retries are allowed.
+      PUSH_SCHEDULING: "true"
+      PUSH_POD_MEMORY_MB: ${PUSH_MEMORY_MB:-512}
+      PUSH_LOG: ${LOG_LEVEL:-info}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
 
 configs:
   metadata-storage-db:

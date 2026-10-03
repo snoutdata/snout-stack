@@ -20,6 +20,7 @@ pub enum Service {
 	Storage,
 	Realtime,
 	Functions,
+	Push,
 }
 
 impl Service {
@@ -39,6 +40,7 @@ impl Service {
 			Service::Storage => "storage",
 			Service::Realtime => "realtime",
 			Service::Functions => "functions",
+			Service::Push => "push",
 		}
 	}
 }
@@ -106,6 +108,14 @@ const PREFIXES: &[Prefix] = &[
 		prefix: "/functions/v1",
 		service: Service::Functions,
 		base: "",
+		headers: &[],
+	},
+	// Push, beside the database like auth. Its routes carry /push/v1 themselves, so nothing is
+	// stripped.
+	Prefix {
+		prefix: "/push/v1",
+		service: Service::Push,
+		base: "/push/v1",
 		headers: &[],
 	},
 ];
@@ -504,6 +514,13 @@ mod tests {
 			"/api/broadcast"
 		);
 		assert_eq!(matched("/functions/v1/hello/x").upstream_path, "/hello/x");
+		let push = matched("/push/v1/send");
+		assert_eq!(push.service, Service::Push);
+		assert_eq!(push.upstream_path, "/push/v1/send");
+		assert_eq!(
+			matched("/push/v1/devices/abc").upstream_path,
+			"/push/v1/devices/abc"
+		);
 	}
 
 	#[test]
@@ -511,6 +528,7 @@ mod tests {
 		assert!(service_for_path("/").is_none());
 		assert!(service_for_path("/restv1").is_none());
 		assert!(service_for_path("/rest/v10").is_none());
+		assert!(service_for_path("/pushy/v1").is_none());
 		assert!(
 			service_for_path("/pg/tables").is_none(),
 			"the schema API is not served"
@@ -531,7 +549,10 @@ mod tests {
 		assert!(!is_open_path("GET", "/auth/v1/user"));
 		assert!(!is_open_path("POST", "/auth/v1/tokenx"));
 		assert!(is_open_path("GET", "/storage/v1/object/sign/b/k?token=t"));
-		assert!(is_open_path("PUT", "/storage/v1/object/upload/sign/b/k?token=t"));
+		assert!(is_open_path(
+			"PUT",
+			"/storage/v1/object/upload/sign/b/k?token=t"
+		));
 		assert!(!is_open_path("POST", "/storage/v1/object/upload/sign/b/k"));
 		assert!(!is_open_path("PUT", "/storage/v1/object/b/k"));
 		assert!(

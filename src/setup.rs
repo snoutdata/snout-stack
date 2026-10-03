@@ -6,6 +6,8 @@
 //!    JWT secret, as the hosted service derives them.
 //! 2. The grants the hosted agent makes before registering a project with Realtime (`sql/`,
 //!    the same bytes). The publication is the database image's own, made when it is created.
+//!    With `PUSH_DB_PASSWORD` set, push's role and schema too (`sql/60-push.sql`, the bytes the
+//!    hosted service runs when push is switched on), and the role's password.
 //! 3. Storage's bucket is made in the bundled object store (`S3_CREATE_BUCKET=false` with your own
 //!    S3, where you make it).
 //! 4. The project is registered with storage and Realtime through their admin APIs, and each is
@@ -36,6 +38,7 @@ const AUTH_ROLE: &str = "snout_auth_admin";
 const REST_ROLE: &str = "authenticator";
 const STORAGE_ROLE: &str = "snout_storage_admin";
 const REALTIME_ROLE: &str = "snout_realtime_admin";
+const PUSH_ROLE: &str = "snout_push_admin";
 const PUBLICATION: &str = "snoutdata_realtime";
 
 /// The hosted service's SQL for a project, byte for byte (its own tests hold the two together).
@@ -54,6 +57,9 @@ const PROJECT_SQL: &[(&str, &str)] = &[
 	),
 ];
 
+/// Push's role and schema; the server migrates the schema itself as that role.
+const PUSH_SQL: (&str, &str) = ("push role and schema", include_str!("../sql/60-push.sql"));
+
 const WAIT: Duration = Duration::from_secs(180);
 
 struct Settings {
@@ -63,6 +69,8 @@ struct Settings {
 	service_key: String,
 	auth_password: String,
 	rest_password: String,
+	/// Unset in a stack made before push, which then runs without it.
+	push_password: Option<String>,
 	storage_admin_key: String,
 	realtime_api_secret: String,
 	/// Where the shared servers reach the project's database: the database service's name.
@@ -94,6 +102,7 @@ fn settings() -> Result<Settings, String> {
 		service_key: env::required("SERVICE_ROLE_KEY")?,
 		auth_password: env::required("AUTH_DB_PASSWORD")?,
 		rest_password: env::required("REST_DB_PASSWORD")?,
+		push_password: env::optional("PUSH_DB_PASSWORD"),
 		storage_admin_key: env::required("STORAGE_ADMIN_API_KEY")?,
 		realtime_api_secret: env::required("REALTIME_API_JWT_SECRET")?,
 		tenant_db_host: env::optional("TENANT_DB_HOST").unwrap_or_else(|| "db".into()),
@@ -147,6 +156,11 @@ pub async fn run() -> Result<(), String> {
 		run_sql(&project, *step).await?;
 	}
 	tracing::info!("project sql applied");
+	if let Some(password) = &s.push_password {
+		run_sql(&project, PUSH_SQL).await?;
+		set_password(&cluster, PUSH_ROLE, password).await?;
+		tracing::info!("push role ready");
+	}
 
 	let http = Http::new();
 	if let Some(bucket) = &s.bucket {
