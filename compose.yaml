@@ -16,9 +16,11 @@
 name: snout-stack
 
 services:
-  # ---- The project's database: Postgres 17 with the extensions, the roles and the auth helpers.
+  # ---- The project's database: Postgres 18 with the extensions, the roles and the auth helpers.
+  # A stack set up on 17 keeps SNOUT_POD_IMAGE=ghcr.io/snoutdata/snoutpod-postgres:17 in .env:
+  # a data directory opens only on the major that made it (README.md, Upgrades).
   db:
-    image: ${SNOUT_POD_IMAGE:-ghcr.io/snoutdata/snoutpod-postgres:17}
+    image: ${SNOUT_POD_IMAGE:-ghcr.io/snoutdata/snoutpod-postgres:18}
     command: snoutpod-postgres
     restart: unless-stopped
     environment:
@@ -195,7 +197,7 @@ services:
 
   # ---- Realtime: broadcast, presence and database changes over WebSockets.
   realtime:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.2
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.3
     restart: unless-stopped
     environment:
       DB_HOST: metadata
