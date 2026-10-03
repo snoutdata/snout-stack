@@ -9,7 +9,7 @@ kind of API work against it unchanged: point them at the gateway with the anon k
 
 | Service | What it is |
 |---|---|
-| `db` | Postgres 17 with pgvector, PostGIS, pg_cron, pg_net, pg_graphql and the rest of the project image's extensions |
+| `db` | Postgres 18 with pgvector, PostGIS, pg_cron, pg_net, pg_graphql, SnoutTime and the rest of the project image's extensions |
 | `auth` | [snout-auth](https://github.com/snoutdata/snout-auth): sign-up, sign-in, sessions, MFA, Google, GitHub and SAML |
 | `rest` | [PostgREST](https://postgrest.org): the REST API over your schema; GraphQL is a Postgres function it calls |
 | `storage` | [snout-storage](https://github.com/snoutdata/snout-storage): buckets and files, authorised by your row-level security |
@@ -88,6 +88,7 @@ Everything is in `.env`. `init` writes the secrets; the rest have defaults and c
 | `SITE_URL` | `http://localhost:3000` | Your application, where a user lands after a sign-in or confirmation link |
 | `API_BIND`, `API_PORT` | `0.0.0.0`, `8000` | Where the gateway is published |
 | `DB_BIND`, `DB_PORT` | `127.0.0.1`, `5432` | Where Postgres is published |
+| `SNOUT_POD_IMAGE` | `ghcr.io/snoutdata/snoutpod-postgres:18` | The database image. A stack set up on Postgres 17 sets `ghcr.io/snoutdata/snoutpod-postgres:17` here (see Upgrades) |
 | `COMPOSE_PROFILES` | `objects,images` | Remove `objects` to keep files in your own S3; remove `images` to run without image resizing |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION` | the bundled store, `stack`, `us-east-1` | Your own S3 (AWS, R2, ...), with `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_CREATE_BUCKET=false`; make the bucket first |
 | `S3_FORCE_PATH_STYLE` | `true` | |
@@ -125,7 +126,10 @@ Each server's own page lists the rest of its settings.
 - **Secrets.** `.env` is the only copy of the keys. Changing `JWT_SECRET` retires both keys and
   every session, so do it with new keys from `snout-stack init` and every client updated.
 - **Upgrades.** Pull this repository's new `compose.yaml` and `docker compose up -d`. The servers
-  bring their own schemas up to date when they start.
+  bring their own schemas up to date when they start. **A Postgres major version is the
+  exception:** a data directory written by 17 will not open in 18, so a stack set up on 17 keeps
+  `SNOUT_POD_IMAGE=ghcr.io/snoutdata/snoutpod-postgres:17` in `.env`. To move it to 18, dump the
+  database, set up a new stack, and restore into it.
 - **Exposure.** Only the gateway's port (and Postgres's, on this machine) is published. The
   servers' admin ports and the metadata database are reachable only inside the stack.
 
