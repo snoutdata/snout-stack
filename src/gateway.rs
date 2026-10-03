@@ -47,6 +47,7 @@ struct Upstreams {
 	storage: String,
 	realtime: String,
 	functions: String,
+	push: String,
 }
 
 impl Upstreams {
@@ -57,6 +58,7 @@ impl Upstreams {
 			Service::Storage => &self.storage,
 			Service::Realtime => &self.realtime,
 			Service::Functions => &self.functions,
+			Service::Push => &self.push,
 		}
 	}
 }
@@ -99,6 +101,7 @@ pub async fn run() -> Result<(), String> {
 				.unwrap_or_else(|| "http://realtime:4000".into()),
 			functions: env::optional("FUNCTIONS_URL")
 				.unwrap_or_else(|| "http://functions:9000".into()),
+			push: env::optional("PUSH_URL").unwrap_or_else(|| "http://db:5200".into()),
 		},
 		client: Client::builder(TokioExecutor::new()).build(connector),
 	});
