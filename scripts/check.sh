@@ -23,13 +23,20 @@ fast=""
 mkdir -p "$here/../.work"
 (
 	cd "$here/.."
+	# Run from a git hook, GIT_DIR names the repository being pushed, and git would then take this
+	# directory for the top of ITS work tree and list the wrong files. Find the checkout from here.
+	unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX
 	if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		git ls-files -co --exclude-standard
 	else
 		# Not a checkout (a copied tree): every file but build output.
 		find . -type f -not -path './target/*' -not -path './.work/*' | sed 's|^\./||'
 	fi
-) | while IFS= read -r f; do [ -f "$here/../$f" ] && printf '%s\n' "$f"; done >"$here/../.work/publishable"
+) | while IFS= read -r f; do
+	# An if, not `[ ] && printf`: a loop's status is its last command's, so a last path that is
+	# not a file (deleted, not yet staged) would end the script here, silently, under set -e.
+	if [ -f "$here/../$f" ]; then printf '%s\n' "$f"; fi
+done >"$here/../.work/publishable"
 
 exec bash "$here/dev.sh" bash -c '
 	set -euo pipefail
