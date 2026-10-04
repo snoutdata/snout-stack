@@ -42,7 +42,8 @@ MSYS_NO_PATHCONV=1 "$engine" run --rm -v "$src:/work" -v snout-stack-fuzz-target
 	-w /work/fuzz "$image" bash -c '
 	set -euo pipefail
 	seconds="$1"; shift
-	cargo +"$STACK_NIGHTLY" fuzz build -O >&2
+	# Only the targets asked for, so one target that does not build stops only its own run.
+	for t in "$@"; do cargo +"$STACK_NIGHTLY" fuzz build -O "$t" >&2; done
 	bin="/cache/fuzz-target/$(rustc +"$STACK_NIGHTLY" -vV | sed -n "s/^host: //p")/release"
 	for t in "$@"; do
 		mkdir -p "corpus/$t" "artifacts/$t"
