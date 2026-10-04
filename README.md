@@ -95,6 +95,7 @@ Everything is in `.env`. `init` writes the secrets; the rest have defaults and c
 | `S3_FORCE_PATH_STYLE` | `true` | |
 | `STORAGE_FILE_SIZE_LIMIT` | `52428800` | The largest upload, in bytes |
 | `AUTH_MAILER_AUTOCONFIRM` | `false` | Sign-ups are confirmed without a mail. Until you set up mail, nobody can confirm one |
+| `AUTH_ANONYMOUS_USERS_ENABLED` | `false` | Guest sign-in: `signInAnonymously()` signs in a user with no email or password, 30 per caller per hour |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_ADMIN_EMAIL`, `SMTP_SENDER_NAME` | none, `587` | The mail server for confirmations, links and codes |
 | `AUTH_DISABLE_SIGNUP` | `false` | Refuse new users (invites still work) |
 | `AUTH_URI_ALLOW_LIST` | none | Other redirect targets, comma separated globs |
