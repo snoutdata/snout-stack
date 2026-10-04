@@ -86,7 +86,7 @@ services:
 
   # ---- Auth: sign-up, sign-in, sessions, MFA, OAuth and SAML, users kept in the `auth` schema.
   auth:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-auth:0.1.5
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-auth:0.1.6
     network_mode: service:db
     restart: unless-stopped
     environment:
@@ -200,7 +200,7 @@ services:
 
   # ---- Realtime: broadcast, presence and database changes over WebSockets.
   realtime:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.3
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.4
     restart: unless-stopped
     environment:
       DB_HOST: metadata
