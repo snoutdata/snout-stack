@@ -130,8 +130,7 @@ Each server's own page lists the rest of its settings.
 - **Upgrades.** Pull this repository's new `compose.yaml` and `docker compose up -d`. The servers
   bring their own schemas up to date when they start. **A Postgres major version is the
   exception:** a data directory written by 17 will not open in 18, so a stack set up on 17 keeps
-  `SNOUT_POD_IMAGE=ghcr.io/snoutdata/snoutpod-postgres:17` in `.env`. To move it to 18, dump the
-  database, set up a new stack, and restore into it.
+  `SNOUT_POD_IMAGE=ghcr.io/snoutdata/snoutpod-postgres:17` in `.env` and keeps running on 17.
 - **Exposure.** Only the gateway's port (and Postgres's, on this machine) is published. The
   servers' admin ports and the metadata database are reachable only inside the stack.
 
