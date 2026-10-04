@@ -10,7 +10,11 @@
 #                                  cargo-audit, and gitleaks over this directory
 #   bash scripts/check.sh --fast   the same without cargo-audit (the pre-push hook's set).
 #                                  cargo-deny's advisories check reads the same RustSec
-#                                  database, so --fast still refuses a known vulnerability
+#                                  database, so --fast still refuses a known vulnerability.
+#                                  What only the full run sees: an unmaintained or unsound
+#                                  crate deep in the graph (deny.toml scopes those to our own
+#                                  direct dependencies; cargo-audit --deny warnings does not),
+#                                  so run the full check before a release
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -50,9 +54,10 @@ exec bash "$here/dev.sh" bash -c '
 		echo "== cargo audit"
 		cargo audit --db /cache/advisory/rustsec --deny warnings
 		echo "== cargo audit (functions)"
-		# The same four advisories functions/deny.toml ignores, each with its reason there.
-		cargo audit --db /cache/advisory/rustsec --deny warnings --file functions/Cargo.lock \
-			--ignore RUSTSEC-2026-0285 --ignore RUSTSEC-2026-0118 --ignore RUSTSEC-2026-0119 --ignore RUSTSEC-2023-0071
+		# Run from functions/ so cargo-audit reads functions/.cargo/audit.toml: the advisories
+		# functions/deny.toml ignores, and the informational ones only cargo-audit reports, each
+		# with its reason and review date there.
+		(cd functions && cargo audit --db /cache/advisory/rustsec --deny warnings --file Cargo.lock)
 	fi
 	echo "== gitleaks"
 	# --no-git: the directory as it will be mirrored, which is what a reader of the public
