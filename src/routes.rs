@@ -320,6 +320,43 @@ pub const REF_HEADER: &str = "x-snoutdata-ref";
 /// per-caller rate limits by it.
 pub const CLIENT_HEADER: &str = "x-snoutdata-client";
 
+/// Every header a server, a library or a function might read as the caller's address. All are
+/// dropped from what the client sent, and the door writes `x-forwarded-for` and `x-real-ip` itself
+/// with the one address it determined: the auth server reads the FIRST `x-forwarded-for` entry for
+/// its audit log, a session's address and the MFA same-address check, Realtime caps sockets by it,
+/// storage reads `forwarded` for an upload's host, and the data API hands every header to SQL.
+/// The same list as the hosted door's `CLIENT_ADDRESS_HEADERS` (snoutpod `proxy/http.ts`).
+pub const CLIENT_ADDRESS_HEADERS: &[&str] = &[
+	"x-forwarded-for",
+	"x-real-ip",
+	"forwarded",
+	"forwarded-for",
+	"x-forwarded",
+	"x-original-forwarded-for",
+	"x-client-ip",
+	"x-cluster-client-ip",
+	"true-client-ip",
+	"cf-connecting-ip",
+	"cf-connecting-ipv6",
+	"cf-pseudo-ipv4",
+	"fastly-client-ip",
+	"fly-client-ip",
+	"x-appengine-user-ip",
+	"x-azure-clientip",
+	"x-azure-socketip",
+];
+
+/// The caller's address: the first entry of the header `GATEWAY_CLIENT_ADDRESS_HEADER` names, when
+/// one is configured and the request carries it, else the socket peer. That header is trusted only
+/// because the operator said a proxy of theirs writes it; a client can put anything in any header.
+pub fn client_address(configured: Option<&str>, peer: std::net::IpAddr) -> String {
+	configured
+		.and_then(|value| value.split(',').next())
+		.map(str::trim)
+		.filter(|value| !value.is_empty())
+		.map_or_else(|| peer.to_string(), str::to_owned)
+}
+
 pub struct Prepare<'a> {
 	pub reference: &'a str,
 	/// The name the shared servers are told: `<ref>.<domain>`.
@@ -382,11 +419,14 @@ pub fn prepare_headers(
 
 	headers.insert(REF_HEADER.into(), options.reference.into());
 	headers.insert("x-forwarded-proto".into(), options.scheme.into());
-	let forwarded_for = match headers.get("x-forwarded-for") {
-		Some(held) => format!("{held}, {}", options.source),
-		None => options.source.to_owned(),
-	};
-	headers.insert("x-forwarded-for".into(), forwarded_for);
+	// The caller's address is the door's to say, on every request: whatever the client wrote is
+	// dropped, and the one address the door determined (`client_address`) is the only entry. It
+	// used to extend the client's chain, which put the client's choice first.
+	for name in CLIENT_ADDRESS_HEADERS {
+		headers.remove(*name);
+	}
+	headers.insert("x-forwarded-for".into(), options.source.into());
+	headers.insert("x-real-ip".into(), options.source.into());
 	headers.insert(CLIENT_HEADER.into(), options.source.into());
 	if let Some(host) = headers.get("host").cloned() {
 		headers.insert("x-forwarded-host".into(), host);
@@ -704,7 +744,50 @@ mod tests {
 			false,
 		);
 		assert_eq!(headers["x-snoutdata-client"], "10.0.0.9");
-		assert_eq!(headers["x-forwarded-for"], "1.2.3.4, 10.0.0.9");
+		assert_eq!(headers["x-forwarded-for"], "10.0.0.9");
+	}
+
+	#[test]
+	fn every_address_a_client_writes_is_replaced_with_the_doors() {
+		let spoofed: Vec<(&str, &str)> = CLIENT_ADDRESS_HEADERS
+			.iter()
+			.map(|name| (*name, "1.2.3.4"))
+			.chain([
+				("Forwarded", "for=1.2.3.4;proto=http;host=evil.example"),
+				("X-Real-IP", "1.2.3.4"),
+				("apikey", "k"),
+			])
+			.collect();
+		for path in [
+			"/auth/v1/token",
+			"/rest/v1/t",
+			"/storage/v1/object/b/o",
+			"/functions/v1/hello",
+		] {
+			let headers = prepare(&spoofed, path, false);
+			assert_eq!(headers["x-forwarded-for"], "10.0.0.9", "{path}");
+			assert_eq!(headers["x-real-ip"], "10.0.0.9", "{path}");
+			for name in CLIENT_ADDRESS_HEADERS
+				.iter()
+				.filter(|n| **n != "x-forwarded-for" && **n != "x-real-ip")
+			{
+				assert!(!headers.contains_key(*name), "{path}: {name}");
+			}
+		}
+	}
+
+	#[test]
+	fn the_configured_client_address_header_is_believed_and_nothing_else_is() {
+		let peer: std::net::IpAddr = "172.18.0.5".parse().unwrap();
+		// GATEWAY_CLIENT_ADDRESS_HEADER set, and the operator's proxy wrote it.
+		assert_eq!(client_address(Some("203.0.113.7"), peer), "203.0.113.7");
+		assert_eq!(
+			client_address(Some(" 203.0.113.7 , 10.0.0.1"), peer),
+			"203.0.113.7"
+		);
+		// Set but absent or empty on this request, or not configured at all: the peer.
+		assert_eq!(client_address(Some(""), peer), "172.18.0.5");
+		assert_eq!(client_address(None, peer), "172.18.0.5");
 	}
 
 	#[test]

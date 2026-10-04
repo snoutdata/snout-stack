@@ -202,17 +202,11 @@ impl Gateway {
 	fn source(&self, request: &Request<Incoming>, peer: SocketAddr) -> String {
 		// Behind a TLS terminator the peer is the terminator. Trusted only when configured,
 		// because a client can put anything in a header.
-		if let Some(name) = &self.client_address_header
-			&& let Some(value) = header_text(request, name)
-			&& let Some(first) = value
-				.split(',')
-				.next()
-				.map(str::trim)
-				.filter(|v| !v.is_empty())
-		{
-			return first.to_owned();
-		}
-		peer.ip().to_string()
+		let configured = self
+			.client_address_header
+			.as_deref()
+			.and_then(|name| header_text(request, name));
+		routes::client_address(configured.as_deref(), peer.ip())
 	}
 
 	async fn handle(&self, mut request: Request<Incoming>, peer: SocketAddr) -> Response<Body> {
