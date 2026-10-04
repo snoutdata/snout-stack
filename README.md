@@ -127,10 +127,24 @@ Each server's own page lists the rest of its settings.
   `docker compose exec db pg_dump -U snoutpod_admin -Fc <SNOUT_REF> > project.dump`.
 - **Secrets.** `.env` is the only copy of the keys. Changing `JWT_SECRET` retires both keys and
   every session, so do it with new keys from `snout-stack init` and every client updated.
-- **Upgrades.** Pull this repository's new `compose.yaml` and `docker compose up -d`. The servers
-  bring their own schemas up to date when they start. **A Postgres major version is the
-  exception:** a data directory written by 17 will not open in 18, so a stack set up on 17 keeps
-  `SNOUT_POD_IMAGE=ghcr.io/snoutdata/snoutpod-postgres:17` in `.env` and keeps running on 17.
+- **Upgrades.** Three commands, in the stack's folder:
+
+  ```sh
+  git pull
+  docker compose pull
+  docker compose up -d --wait
+  ```
+
+  `docker compose pull` is the step that is easy to miss. The database image is a moving tag
+  (`:18`), and `up` never fetches a tag that is already on the machine, so without it the stack
+  keeps the database image it was set up with, however many releases later. The servers bring
+  their own schemas up to date when they start, and so does the database: each time it starts, it
+  updates our own extensions (SnoutTime) in every database to the versions the image carries, with
+  one line per update in `docker compose logs db`. Your data and every other extension stay as
+  they are. **A Postgres major version is the exception:** a data directory written by 17 will
+  not open in 18, so a stack set up on 17 keeps
+  `SNOUT_POD_IMAGE=ghcr.io/snoutdata/snoutpod-postgres:17` in `.env`, and the commands above move
+  it to the newest 17 image.
 - **Exposure.** Only the gateway's port (and Postgres's, on this machine) is published. The
   servers' admin ports and the metadata database are reachable only inside the stack.
 
