@@ -165,6 +165,49 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `ANON_KEY` a
 | `snout-stack gateway` | The front door |
 | `snout-stack functions [--source <dir>] [--out <dir>]` | Lay `functions/` out for the runtime and bundle each function |
 
+## Changelog
+
+Newest first. To take a release, follow Upgrades above: each server is pinned by version in
+`compose.yaml`, and your `.env` and volumes stay as they are.
+
+### 0.1.4, 2026-10-05: security fixes, and push
+
+From a review of every server's code against a checklist of how each kind of server gets broken.
+Update if you run an earlier version.
+
+- **snout-auth 0.1.9.**
+  - The token in a mailed confirmation, recovery, invite or magic link is keyed with your
+    `JWT_SECRET`, so it can't be worked out from the six-digit code, and five wrong guesses spend
+    a code through a link as well. Links mailed before the update stop working; the user asks
+    for another.
+  - A `redirect_to` holding a user name, a backslash or a control character is refused.
+  - With `MAILER_AUTOCONFIRM` on, signing up again for an invited or unconfirmed address no
+    longer signs in to that account without its password.
+  - An address a sign-in provider has not verified never joins an existing account.
+  - A SAML provider's users sign in only with an address in the domains registered for it.
+- **snout-storage 0.2.3.**
+  - A form field other than the file is limited to 1 MiB, and a form to 32 fields, so one upload
+    can't exhaust the server's memory.
+  - HTML is served as plain text, and SVG and XML with a policy that blocks script.
+  - A signed download URL can't upload, and a signed upload URL can't download.
+  - A copy is held to the destination bucket's allowed types.
+- **snout-realtime 0.1.5.**
+  - A connection that stops reading is closed after 30 seconds instead of queueing without end,
+    and one that sends nothing for 60 seconds is closed.
+  - Presence and message sizes are capped.
+  - Presence on a private channel reaches only those your policies let read it.
+- **snout-functions 0.2.4.** A function's CPU limit covers its whole run, and function code can't
+  write files or follow links out of its folder.
+- **The database image** (`snoutpod-postgres`): the extensions that run with elevated rights
+  resolve every name from the system catalog only. An existing stack picks this up with the
+  Upgrades steps.
+- **Push notifications** (`snout-push` 0.1.2) are part of the stack, on by default;
+  remove `push` from `COMPOSE_PROFILES` to run without it.
+
+### 0.1.3, 2026-10-04
+
+- snout-auth 0.1.6 (guest sign-in) and snout-realtime 0.1.4.
+
 ## Licence
 
 [Apache License 2.0](./LICENSE). Security reports: [SECURITY.md](./SECURITY.md).
