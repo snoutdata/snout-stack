@@ -325,7 +325,7 @@ pub const CLIENT_HEADER: &str = "x-snoutdata-client";
 /// with the one address it determined: the auth server reads the FIRST `x-forwarded-for` entry for
 /// its audit log, a session's address and the MFA same-address check, Realtime caps sockets by it,
 /// storage reads `forwarded` for an upload's host, and the data API hands every header to SQL.
-/// The same list as the hosted door's `CLIENT_ADDRESS_HEADERS` (snoutpod `proxy/http.ts`).
+/// The same list as the hosted front door's `CLIENT_ADDRESS_HEADERS`.
 pub const CLIENT_ADDRESS_HEADERS: &[&str] = &[
 	"x-forwarded-for",
 	"x-real-ip",

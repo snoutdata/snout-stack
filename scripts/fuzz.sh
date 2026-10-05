@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fuzz every parser of untrusted input (X13), in a container with a pinned nightly (cargo-fuzz
+# Fuzz every parser of untrusted input, in a container with a pinned nightly (cargo-fuzz
 # needs nightly for libFuzzer's sanitizer flags; everything else uses the stable pin).
 #
 #   bash scripts/fuzz.sh [seconds per target, default 60] [target ...]
