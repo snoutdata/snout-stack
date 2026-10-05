@@ -86,7 +86,7 @@ services:
 
   # ---- Auth: sign-up, sign-in, sessions, MFA, OAuth and SAML, users kept in the `auth` schema.
   auth:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-auth:0.1.6
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-auth:0.1.9
     network_mode: service:db
     restart: unless-stopped
     environment:
@@ -175,7 +175,7 @@ services:
 
   # ---- Storage: buckets and files, every operation decided by the project's own policies.
   storage:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-storage:0.2.2
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-storage:0.2.3
     restart: unless-stopped
     environment:
       DATABASE_MULTITENANT_URL: postgres://postgres:${METADATA_DB_PASSWORD}@metadata:5432/storage
@@ -200,7 +200,7 @@ services:
 
   # ---- Realtime: broadcast, presence and database changes over WebSockets.
   realtime:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.4
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.5
     restart: unless-stopped
     environment:
       DB_HOST: metadata
@@ -240,7 +240,7 @@ services:
   # of its own with the gateway, so a function reaches the internet and this stack's API, and not
   # the databases or the servers' admin ports.
   functions:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-functions:0.2.3
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-functions:0.2.4
     restart: unless-stopped
     # Every function shares this container's memory; past 85% of it the runtime makes room by
     # stopping idle workers rather than letting the kernel stop the container.
