@@ -37,7 +37,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "json", "ansi"] }
 
 
-# Written out from the stack workspace by scripts/assemble.sh.
+# Written out from the stack's workspace, which this crate is published from.
 [lints.rust]
 # X13: no `unsafe` outside the pgrx boundary. The three extensions under ext/ opt out in
 # their own Cargo.toml when pgrx arrives, and nowhere else may.
