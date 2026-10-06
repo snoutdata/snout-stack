@@ -6,3 +6,4 @@
 bench/results/*-local.md
 bench/.work/
 /.work/
+lepis/bench/results/*-local*.md

@@ -39,6 +39,13 @@ mkdir -p "$here/../.work"
 	if [ -f "$here/../$f" ]; then printf '%s\n' "$f"; fi
 done >"$here/../.work/publishable"
 
+# snout-lepis's L2 gate: its code against pinned PgDog and Citus checkouts.
+# Full run only: the first run fetches both trees.
+if [ -z "$fast" ]; then
+	echo "== lepis clone check"
+	bash "$here/../lepis/scripts/clone-check.sh"
+fi
+
 exec bash "$here/dev.sh" bash -c '
 	set -euo pipefail
 	echo "== cargo deny"
