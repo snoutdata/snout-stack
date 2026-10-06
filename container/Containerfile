@@ -12,6 +12,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		build-essential pkg-config ca-certificates git curl \
 	&& rm -rf /var/lib/apt/lists/*
 
+# snout-lepis parses SQL with libpg_query (the pg_query crate), whose build runs bindgen
+# (libclang) and prost-build (protoc).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+		clang libclang-dev protobuf-compiler \
+	&& rm -rf /var/lib/apt/lists/*
+
 # The same gitleaks release the repo's on-demand security scan uses (.github/workflows/security-scan.yml).
 RUN arch="$(dpkg --print-architecture)"; case "$arch" in amd64) g=x64 ;; arm64) g=arm64 ;; *) exit 1 ;; esac; \
 	curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${g}.tar.gz" \
