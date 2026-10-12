@@ -170,6 +170,21 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `APP_KEY` an
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
 
+### 2026-10-12: snout-realtime 0.1.6 and snout-functions 0.2.5
+
+Two servers move; `snout-stack` itself is unchanged at 0.1.4.
+
+- **snout-realtime 0.1.6.**
+  - A channel joined without a `join_ref` is known by the join's `ref`, so `phx_close` and system
+    messages carry it to a hand-written client.
+  - A join whose `config.presence` leaves out `enabled` is sent `roster_state`.
+  - A message on a channel the server closed is told why.
+- **snout-functions 0.2.5.** What a function prints with `console.log` or `console.error` comes out
+  as one JSON line naming the project and function, with the time and level, so
+  `docker compose logs functions` says which function printed what. A line is cut at 4 KB, and a
+  function printing faster than 50 lines a second (after a burst of 200) has the rest counted
+  rather than written.
+
 ### 0.1.4, 2026-10-05: security fixes, and push
 
 From a review of every server's code against a checklist of how each kind of server gets broken.
