@@ -200,7 +200,7 @@ services:
 
   # ---- Realtime: broadcast, presence and database changes over WebSockets.
   realtime:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.6
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.9
     restart: unless-stopped
     environment:
       DB_HOST: metadata

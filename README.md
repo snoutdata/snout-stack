@@ -170,6 +170,24 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `APP_KEY` an
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
 
+### 2026-10-13: snout-realtime 0.1.9, handlers and Socket.IO
+
+One server moves; `snout-stack` itself is unchanged at 0.1.4.
+
+- **Realtime handlers.** `select snout_live.on('send', 'public.send_message(jsonb)', 'room:*')` makes
+  a SQL function run when a client sends that event: as that user, under your row-level security,
+  in one transaction, and what it returns is the reply (`channel.call()` in `@snoutdata/client`
+  0.3.4). What it sends with `snout_live.emit()` goes out only if it commits.
+- **Socket.IO.** The official `socket.io-client` connects unmodified at
+  `path: '/v1/live/socket.io/'`, over long-polling and websocket. Your server's listeners are
+  the handlers, the ack is the return value, and a room is a Realtime topic.
+- **`snout_live.signal()` as the project's owner.** The owner role is granted `snout_live.signals` as
+  the API roles are, so a broadcast from the owner's own SQL, triggers and jobs is delivered.
+
+Nothing to do but pull: Realtime adds its handler table to the project database on its next
+start. [Realtime](https://docs.snoutdata.com/stack/realtime) and
+[Socket.IO](https://docs.snoutdata.com/stack/socketio) have the details.
+
 ### 2026-10-12: snout-realtime 0.1.6 and snout-functions 0.2.5
 
 Two servers move; `snout-stack` itself is unchanged at 0.1.4.
