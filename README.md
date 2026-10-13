@@ -79,6 +79,33 @@ listed in `FUNCTIONS_NO_VERIFY_JWT` (a webhook's receiver).
 The functions container sits on a network of its own with the gateway: a function reaches the
 internet and this stack's API, and not the databases or the servers' admin ports.
 
+## Containers
+
+Your own Docker images, running all the time beside the project, each under
+[gVisor](https://gvisor.dev) with its own memory and CPU limits and a network of its own:
+`snout-containers`, in the `containers` profile (not on by default). It needs an engine on this
+machine first: gVisor, a small runtime wrapper, a podman configuration and a rootless podman service,
+which [snout-containers' README](https://github.com/snoutdata/snout-containers#the-engine) sets out
+step by step. Then add `containers` to `COMPOSE_PROFILES`, set `SNOUT_CONTAINERS_RUNTIME_DIR` to that
+user's runtime directory (`/run/user/<uid>`), and describe what to run in
+`containers/manifests/<project>.json`:
+
+```json
+{
+  "project": "local",
+  "limits": { "memoryMb": 256, "cpuPercent": 50 },
+  "containers": [
+    { "name": "bridge", "image": "ghcr.io/you/bridge:1.0", "port": 8080, "hostPort": 46000,
+      "env": { "DATABASE_URL": "postgres://…" } }
+  ]
+}
+```
+
+`containers/state/status.json` says how each one is, and `docker compose logs containers` why.
+A container is stateless: anything it writes inside itself is lost on a restart, so it keeps what
+matters in the database. Tested with rootless podman as the engine's user; on Docker the runner
+needs that user's runtime directory mounted as shown in `compose.yaml`.
+
 ## Configuration
 
 Everything is in `.env`. `init` writes the secrets; the rest have defaults and can be added.
@@ -90,7 +117,7 @@ Everything is in `.env`. `init` writes the secrets; the rest have defaults and c
 | `API_BIND`, `API_PORT` | `0.0.0.0`, `8000` | Where the gateway is published |
 | `DB_BIND`, `DB_PORT` | `127.0.0.1`, `5432` | Where Postgres is published |
 | `SNOUT_POD_IMAGE` | `ghcr.io/snoutdata/snoutpod-postgres:18` | The database image. A stack set up on Postgres 17 sets `ghcr.io/snoutdata/snoutpod-postgres:17` here and keeps it (see Upgrades) |
-| `COMPOSE_PROFILES` | `objects,images,push` | Remove `objects` to keep files in your own S3; remove `images` to run without image resizing; remove `push` to run without push notifications |
+| `COMPOSE_PROFILES` | `objects,images,push` | Remove `objects` to keep files in your own S3; remove `images` to run without image resizing; remove `push` to run without push notifications; add `containers` to run your own images (Containers, above) |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION` | the bundled store, `stack`, `us-east-1` | Your own S3 (AWS, R2, ...), with `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_CREATE_BUCKET=false`; make the bucket first |
 | `S3_FORCE_PATH_STYLE` | `true` | |
 | `STORAGE_FILE_SIZE_LIMIT` | `52428800` | The largest upload, in bytes |
@@ -169,6 +196,12 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `APP_KEY` an
 
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
+
+### 2026-10-13: snout-containers 0.1.0, your own images
+
+A new, optional server; nothing else moves. `snout-containers` runs your own Docker images all the
+time, each under gVisor with its own limits and network, from a JSON file per project. Add
+`containers` to `COMPOSE_PROFILES` once this machine has its engine (Containers, above).
 
 ### 2026-10-13: snout-realtime 0.1.9, handlers and Socket.IO
 
