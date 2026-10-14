@@ -197,6 +197,14 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `APP_KEY` an
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
 
+### 2026-10-13: snout-containers 0.1.1, limits on what a container sends
+
+One server moves. A container may open 20 connections a second (bursts of 200), hold 1,000 open and
+send 2 MB a second on them, and may not open port 25; past a limit a connection is refused at once.
+The limits are an nftables table in rootless podman's network namespace, so the machine needs
+`nftables`; set `SNOUT_CONTAINERS_EGRESS=off` on an engine that is not rootless podman. Each
+container's `status.json` row now says what it sent, opened and was refused in the last hour.
+
 ### 2026-10-13: snout-containers 0.1.0, your own images
 
 A new, optional server; nothing else moves. `snout-containers` runs your own Docker images all the

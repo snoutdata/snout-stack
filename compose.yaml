@@ -332,12 +332,15 @@ services:
   # podman as that user; set SNOUT_CONTAINERS_RUNTIME_DIR to their runtime directory. Without the
   # engine it runs nothing and says why on its /health.
   containers:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-containers:0.1.0
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-containers:0.1.1
     profiles: [containers]
     restart: unless-stopped
     environment:
       DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user-bus
       SNOUT_CONTAINERS_BIND: ${SNOUT_CONTAINERS_BIND:-127.0.0.1}
+      # The limits on what containers send live in nftables in rootless podman's network
+      # namespace (its README, "What a container may send"); off on an engine that is not that.
+      SNOUT_CONTAINERS_EGRESS: ${SNOUT_CONTAINERS_EGRESS:-enforce}
     volumes:
       - ${SNOUT_CONTAINERS_RUNTIME_DIR:-/run/user/1000}/snoutct:/run/snoutct
       - ${SNOUT_CONTAINERS_RUNTIME_DIR:-/run/user/1000}/bus:/run/user-bus
