@@ -84,8 +84,8 @@ pub async fn run() -> Result<(), String> {
 	connector.set_nodelay(true);
 	let gateway = Arc::new(Gateway {
 		keys: Keys::new(
-			&env::required("APP_KEY")?,
-			&env::required("SERVER_KEY")?,
+			&env::required("ANON_KEY")?,
+			&env::required("SERVICE_ROLE_KEY")?,
 		),
 		reference,
 		scheme: scheme.to_owned(),

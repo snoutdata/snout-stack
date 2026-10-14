@@ -29,8 +29,8 @@ use crate::keys;
 /// The variables every function is given, set from the stack's own keys.
 pub const PLATFORM_ENV: [&str; 3] = [
 	"SNOUTDATA_URL",
-	"SNOUTDATA_APP_KEY",
-	"SNOUTDATA_SERVER_KEY",
+	"SNOUTDATA_ANON_KEY",
+	"SNOUTDATA_SERVICE_ROLE_KEY",
 ];
 
 /// Entrypoints, in the order they are looked for.
@@ -336,10 +336,10 @@ fn platform_env() -> Result<BTreeMap<String, String>, String> {
 		PLATFORM_ENV[0].to_owned(),
 		env::optional("FUNCTIONS_API_URL").unwrap_or_else(|| "http://gateway:8000".into()),
 	);
-	out.insert(PLATFORM_ENV[1].to_owned(), env::required("APP_KEY")?);
+	out.insert(PLATFORM_ENV[1].to_owned(), env::required("ANON_KEY")?);
 	out.insert(
 		PLATFORM_ENV[2].to_owned(),
-		env::required("SERVER_KEY")?,
+		env::required("SERVICE_ROLE_KEY")?,
 	);
 	Ok(out)
 }

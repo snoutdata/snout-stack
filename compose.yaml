@@ -58,8 +58,8 @@ services:
     environment:
       SNOUT_REF: ${SNOUT_REF}
       JWT_SECRET: ${JWT_SECRET:?run snout-stack init first}
-      APP_KEY: ${APP_KEY:?run snout-stack init first}
-      SERVER_KEY: ${SERVER_KEY:?run snout-stack init first}
+      ANON_KEY: ${ANON_KEY:?run snout-stack init first}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?run snout-stack init first}
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?run snout-stack init first}
       REST_DB_PASSWORD: ${REST_DB_PASSWORD:?run snout-stack init first}
       # Push's role is made only when this is set; a stack made before push has none.
@@ -95,10 +95,10 @@ services:
       AUTH_DB_DATABASE_URL: postgres://snout_auth_admin:${AUTH_DB_PASSWORD}@127.0.0.1:5432/${SNOUT_REF}
       AUTH_JWT_SECRET: ${JWT_SECRET}
       AUTH_JWT_EXP: ${AUTH_JWT_EXP:-3600}
-      AUTH_JWT_ISSUER: ${API_EXTERNAL_URL:?run snout-stack init first}/v1/identity
-      AUTH_JWT_AUD: snout_member
-      AUTH_JWT_DEFAULT_GROUP_NAME: snout_member
-      AUTH_JWT_ADMIN_ROLES: snout_server
+      AUTH_JWT_ISSUER: ${API_EXTERNAL_URL:?run snout-stack init first}/auth/v1
+      AUTH_JWT_AUD: authenticated
+      AUTH_JWT_DEFAULT_GROUP_NAME: authenticated
+      AUTH_JWT_ADMIN_ROLES: service_role
       AUTH_SITE_URL: ${SITE_URL:?run snout-stack init first}
       AUTH_API_EXTERNAL_URL: ${API_EXTERNAL_URL}
       AUTH_URI_ALLOW_LIST: ${AUTH_URI_ALLOW_LIST:-}
@@ -127,7 +127,7 @@ services:
       AUTH_EXTERNAL_GITHUB_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
       AUTH_SAML_ENABLED: ${SAML_ENABLED:-false}
       AUTH_SAML_PRIVATE_KEY: ${SAML_PRIVATE_KEY:-}
-      AUTH_SAML_EXTERNAL_URL: ${API_EXTERNAL_URL}/v1/identity
+      AUTH_SAML_EXTERNAL_URL: ${API_EXTERNAL_URL}/auth/v1
       AUTH_LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       setup:
@@ -139,17 +139,17 @@ services:
     network_mode: service:db
     restart: unless-stopped
     environment:
-      PGRST_DB_URI: postgres://snout_gate:${REST_DB_PASSWORD}@127.0.0.1:5432/${SNOUT_REF}
+      PGRST_DB_URI: postgres://authenticator:${REST_DB_PASSWORD}@127.0.0.1:5432/${SNOUT_REF}
       PGRST_JWT_SECRET: ${JWT_SECRET}
       PGRST_JWT_ROLE_CLAIM_KEY: .role
-      PGRST_DB_SCHEMAS: ${REST_SCHEMAS:-public, snout_graph}
-      PGRST_DB_ANON_ROLE: snout_app
+      PGRST_DB_SCHEMAS: ${REST_SCHEMAS:-public, graphql_public}
+      PGRST_DB_ANON_ROLE: anon
       PGRST_DB_POOL: ${REST_DB_POOL:-10}
       PGRST_DB_CHANNEL_ENABLED: "true"
       PGRST_DB_CHANNEL: pgrst
       PGRST_SERVER_HOST: "*4"
       PGRST_SERVER_PORT: "3000"
-      PGRST_OPENAPI_SERVER_PROXY_URI: ${API_EXTERNAL_URL}/v1/data
+      PGRST_OPENAPI_SERVER_PROXY_URI: ${API_EXTERNAL_URL}/rest/v1
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -192,7 +192,10 @@ services:
       STORAGE_S3_REGION: ${S3_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
       AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
-      # Resized images, when the `images` profile runs; without it a render request is refused.
+      # Resized images, from the `images` profile. The render routes exist only with this switch
+      # on (until 2026-10-14 it was missing, so the profile ran and every render answered 404);
+      # with the profile off, a render request answers an error instead.
+      ENABLE_IMAGE_TRANSFORMATION: "true"
       IMGPROXY_URL: http://images:8080
     depends_on:
       metadata:
@@ -224,8 +227,8 @@ services:
     restart: "no"
     environment:
       SNOUT_REF: ${SNOUT_REF}
-      APP_KEY: ${APP_KEY}
-      SERVER_KEY: ${SERVER_KEY}
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
       # Not a function's variable: the runtime checks a key-required function's token with it.
       JWT_SECRET: ${JWT_SECRET}
       FUNCTIONS_NO_VERIFY_JWT: ${FUNCTIONS_NO_VERIFY_JWT:-}
@@ -264,8 +267,8 @@ services:
     environment:
       SNOUT_REF: ${SNOUT_REF}
       API_EXTERNAL_URL: ${API_EXTERNAL_URL}
-      APP_KEY: ${APP_KEY}
-      SERVER_KEY: ${SERVER_KEY}
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
       FUNCTIONS_DOOR_SECRET: ${FUNCTIONS_DOOR_SECRET}
       # Functions callable with no key (a webhook's receiver), comma separated.
       FUNCTIONS_NO_VERIFY_JWT: ${FUNCTIONS_NO_VERIFY_JWT:-}

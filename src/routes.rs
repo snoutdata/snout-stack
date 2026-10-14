@@ -64,7 +64,7 @@ struct Prefix {
 /// Longest first, so a prefix is never shadowed by a shorter neighbour.
 const PREFIXES: &[Prefix] = &[
 	Prefix {
-		prefix: "/v1/data",
+		prefix: "/rest/v1",
 		service: Service::Rest,
 		base: "",
 		headers: &[],
@@ -72,40 +72,40 @@ const PREFIXES: &[Prefix] = &[
 	// Not a process: the GraphQL resolver is a Postgres function the data API calls, in the
 	// schema this header names.
 	Prefix {
-		prefix: "/v1/graph",
+		prefix: "/graphql/v1",
 		service: Service::Graphql,
 		base: "/rpc/graphql",
-		headers: &[("content-profile", "snout_graph")],
+		headers: &[("content-profile", "graphql_public")],
 	},
 	Prefix {
-		prefix: "/v1/identity",
+		prefix: "/auth/v1",
 		service: Service::Auth,
 		base: "",
 		headers: &[],
 	},
 	// The prefix is told back to storage so a resumable upload's `Location` is reachable.
 	Prefix {
-		prefix: "/v1/files",
+		prefix: "/storage/v1",
 		service: Service::Storage,
 		base: "",
-		headers: &[("x-forwarded-prefix", "/v1/files")],
+		headers: &[("x-forwarded-prefix", "/storage/v1")],
 	},
 	// Broadcast over HTTP. Exactly this path under `/api`: the tenant API beside it is the
 	// server's admin surface and is never reachable from outside.
 	Prefix {
-		prefix: "/v1/live/signal",
+		prefix: "/realtime/v1/api/broadcast",
 		service: Service::Realtime,
 		base: "/api/broadcast",
 		headers: &[],
 	},
 	Prefix {
-		prefix: "/v1/live",
+		prefix: "/realtime/v1",
 		service: Service::Realtime,
 		base: "/socket",
 		headers: &[],
 	},
 	Prefix {
-		prefix: "/v1/fn",
+		prefix: "/functions/v1",
 		service: Service::Functions,
 		base: "",
 		headers: &[],
@@ -155,17 +155,17 @@ pub fn service_for_path(path_and_query: &str) -> Option<Match> {
 /// key with them, and with them open a rotated key still signed people in.
 const OPEN_AUTH_PATHS: &[&str] = &[
 	"/auth/v1/verify",
-	"/v1/identity/provider/start",
+	"/auth/v1/authorize",
 	"/auth/v1/callback",
 	"/auth/v1/sso/saml/acs",
-	"/v1/identity/sso/saml/metadata",
+	"/auth/v1/sso/saml/metadata",
 ];
 
 const OPEN_STORAGE_READS: &[&str] = &[
-	"/v1/files/file/public/",
-	"/v1/files/file/signed/",
-	"/v1/files/image/public/",
-	"/v1/files/image/sign/",
+	"/storage/v1/object/public/",
+	"/storage/v1/object/sign/",
+	"/storage/v1/render/image/public/",
+	"/storage/v1/render/image/sign/",
 ];
 
 fn path_only(path_and_query: &str) -> &str {
@@ -186,7 +186,7 @@ pub fn is_open_path(method: &str, path_and_query: &str) -> bool {
 	}
 	// Minting a signed URL (POST) is authorised; redeeming one (GET, or PUT for an upload) is not.
 	if method.eq_ignore_ascii_case("PUT") {
-		return path.starts_with("/v1/files/file/upload/sign/");
+		return path.starts_with("/storage/v1/object/upload/sign/");
 	}
 	let reading = method.eq_ignore_ascii_case("GET") || method.eq_ignore_ascii_case("HEAD");
 	reading && OPEN_STORAGE_READS.iter().any(|open| path.starts_with(open))
@@ -286,7 +286,7 @@ pub fn authorise(
 		return Err(Refusal {
 			status: 401,
 			message: "No API key found in request, or the key is not one of this project's.",
-			hint: Some("Send the project's app or server key as the `apikey` header."),
+			hint: Some("Send the project's anon or service_role key as the `apikey` header."),
 			code: "no_api_key",
 		});
 	}
@@ -530,30 +530,30 @@ mod tests {
 	#[test]
 	fn the_five_prefixes_route_and_rebase() {
 		assert_eq!(
-			matched("/v1/data/todos?select=*").upstream_path,
+			matched("/rest/v1/todos?select=*").upstream_path,
 			"/todos?select=*"
 		);
-		assert_eq!(matched("/v1/data").upstream_path, "/");
-		let graphql = matched("/v1/graph");
+		assert_eq!(matched("/rest/v1").upstream_path, "/");
+		let graphql = matched("/graphql/v1");
 		assert_eq!(graphql.service, Service::Graphql);
 		assert_eq!(graphql.upstream_path, "/rpc/graphql");
 		assert_eq!(
-			matched("/v1/identity/session?via=password").upstream_path,
+			matched("/auth/v1/token?grant_type=password").upstream_path,
 			"/token?grant_type=password"
 		);
 		assert_eq!(
-			matched("/v1/files/file/public/a/b.png").service,
+			matched("/storage/v1/object/public/a/b.png").service,
 			Service::Storage
 		);
 		assert_eq!(
-			matched("/v1/live/websocket?vsn=1.0.0").upstream_path,
+			matched("/realtime/v1/websocket?vsn=1.0.0").upstream_path,
 			"/socket/websocket?vsn=1.0.0"
 		);
 		assert_eq!(
-			matched("/v1/live/signal").upstream_path,
+			matched("/realtime/v1/api/broadcast").upstream_path,
 			"/api/broadcast"
 		);
-		assert_eq!(matched("/v1/fn/hello/x").upstream_path, "/hello/x");
+		assert_eq!(matched("/functions/v1/hello/x").upstream_path, "/hello/x");
 		let push = matched("/push/v1/send");
 		assert_eq!(push.service, Service::Push);
 		assert_eq!(push.upstream_path, "/push/v1/send");
@@ -575,55 +575,55 @@ mod tests {
 		);
 		// The realtime tenant API is under /api, and only broadcast is routed there.
 		assert_eq!(
-			matched("/v1/live/api/tenants").upstream_path,
+			matched("/realtime/v1/api/tenants").upstream_path,
 			"/socket/api/tenants"
 		);
 	}
 
 	#[test]
 	fn open_paths_are_the_sign_in_flow_and_presigned_reads() {
-		assert!(!is_open_path("POST", "/v1/identity/session?via=password"));
-		assert!(!is_open_path("POST", "/v1/identity/register"));
-		assert!(!is_open_path("POST", "/v1/identity/reset"));
+		assert!(!is_open_path("POST", "/auth/v1/token?grant_type=password"));
+		assert!(!is_open_path("POST", "/auth/v1/signup"));
+		assert!(!is_open_path("POST", "/auth/v1/recover"));
 		assert!(is_open_path("GET", "/auth/v1/verify?token=x"));
-		assert!(!is_open_path("GET", "/v1/identity/person"));
-		assert!(!is_open_path("POST", "/v1/identity/tokenx"));
-		assert!(is_open_path("GET", "/v1/files/file/signed/b/k?token=t"));
+		assert!(!is_open_path("GET", "/auth/v1/user"));
+		assert!(!is_open_path("POST", "/auth/v1/tokenx"));
+		assert!(is_open_path("GET", "/storage/v1/object/sign/b/k?token=t"));
 		assert!(is_open_path(
 			"PUT",
-			"/v1/files/file/upload/sign/b/k?token=t"
+			"/storage/v1/object/upload/sign/b/k?token=t"
 		));
-		assert!(!is_open_path("POST", "/v1/files/file/upload/sign/b/k"));
-		assert!(!is_open_path("PUT", "/v1/files/file/b/k"));
+		assert!(!is_open_path("POST", "/storage/v1/object/upload/sign/b/k"));
+		assert!(!is_open_path("PUT", "/storage/v1/object/b/k"));
 		assert!(
-			!is_open_path("POST", "/v1/files/file/signed/b/k"),
+			!is_open_path("POST", "/storage/v1/object/sign/b/k"),
 			"minting a signed URL needs a key"
 		);
-		assert!(!is_open_path("GET", "/v1/files/file/b/k"));
+		assert!(!is_open_path("GET", "/storage/v1/object/b/k"));
 	}
 
 	#[test]
 	fn a_request_without_a_known_key_is_refused_unless_open() {
-		let keys = Keys::new("app-key", "service-key");
-		assert_eq!(keys.classify(Some("app-key")), Some(Role::Anon));
+		let keys = Keys::new("anon-key", "service-key");
+		assert_eq!(keys.classify(Some("anon-key")), Some(Role::Anon));
 		assert_eq!(keys.classify(Some("service-key")), Some(Role::ServiceRole));
 		assert_eq!(keys.classify(Some("other")), None);
 		assert_eq!(keys.classify(None), None);
 
-		let rest = matched("/v1/data/todos");
+		let rest = matched("/rest/v1/todos");
 		assert_eq!(
-			authorise("GET", "/v1/data/todos", &rest, None, &[])
+			authorise("GET", "/rest/v1/todos", &rest, None, &[])
 				.unwrap_err()
 				.status,
 			401
 		);
-		assert!(authorise("GET", "/v1/data/todos", &rest, Some(Role::Anon), &[]).is_ok());
+		assert!(authorise("GET", "/rest/v1/todos", &rest, Some(Role::Anon), &[]).is_ok());
 
-		let hook = matched("/v1/fn/stripe-hook");
+		let hook = matched("/functions/v1/stripe-hook");
 		assert!(
 			authorise(
 				"POST",
-				"/v1/fn/stripe-hook",
+				"/functions/v1/stripe-hook",
 				&hook,
 				None,
 				&["stripe-hook".into()]
@@ -633,18 +633,18 @@ mod tests {
 		assert!(
 			authorise(
 				"POST",
-				"/v1/fn/stripe-hook",
+				"/functions/v1/stripe-hook",
 				&hook,
 				None,
 				&["other".into()]
 			)
 			.is_err()
 		);
-		let sneaky = matched("/v1/fn/stripe-hook.x/y");
+		let sneaky = matched("/functions/v1/stripe-hook.x/y");
 		assert!(
 			authorise(
 				"POST",
-				"/v1/fn/stripe-hook.x/y",
+				"/functions/v1/stripe-hook.x/y",
 				&sneaky,
 				None,
 				&["stripe-hook".into()]
@@ -671,21 +671,21 @@ mod tests {
 
 	#[test]
 	fn the_key_becomes_a_bearer_only_when_there_is_none() {
-		let headers = prepare(&[("apikey", "app-key")], "/v1/data/todos", false);
-		assert_eq!(headers["authorization"], "Bearer app-key");
-		assert_eq!(headers["x-api-key"], "app-key");
+		let headers = prepare(&[("apikey", "anon-key")], "/rest/v1/todos", false);
+		assert_eq!(headers["authorization"], "Bearer anon-key");
+		assert_eq!(headers["x-api-key"], "anon-key");
 		let signed_in = prepare(
-			&[("apikey", "app-key"), ("Authorization", "Bearer user-jwt")],
-			"/v1/data/todos",
+			&[("apikey", "anon-key"), ("Authorization", "Bearer user-jwt")],
+			"/rest/v1/todos",
 			false,
 		);
 		assert_eq!(signed_in["authorization"], "Bearer user-jwt");
 		let query = prepare(
 			&[],
-			"/v1/live/websocket?apikey=app%2Dkey&vsn=1.0.0",
+			"/realtime/v1/websocket?apikey=anon%2Dkey&vsn=1.0.0",
 			true,
 		);
-		assert_eq!(query["apikey"], "app-key");
+		assert_eq!(query["apikey"], "anon-key");
 		assert_eq!(query["connection"], "Upgrade");
 	}
 
@@ -693,19 +693,19 @@ mod tests {
 	fn the_shared_servers_are_told_the_project_by_the_door() {
 		let storage = prepare(
 			&[("host", "evil.example.com"), ("apikey", "k")],
-			"/v1/files/space",
+			"/storage/v1/bucket",
 			false,
 		);
 		assert_eq!(storage["host"], "abcdefghjkmnp.stack.internal");
 		assert_eq!(storage["x-forwarded-host"], "abcdefghjkmnp.stack.internal");
-		assert_eq!(storage["x-forwarded-prefix"], "/v1/files");
+		assert_eq!(storage["x-forwarded-prefix"], "/storage/v1");
 		let auth = prepare(
 			&[
 				("host", "api.example.com"),
 				("apikey", "k"),
 				("x-api-version", "2024-01-01"),
 			],
-			"/v1/identity/person",
+			"/auth/v1/user",
 			false,
 		);
 		assert!(!auth.contains_key("x-forwarded-host"));
@@ -720,13 +720,13 @@ mod tests {
 	fn the_door_secret_goes_to_functions_only_and_a_client_cannot_forge_it() {
 		let functions = prepare(
 			&[("x-snoutdata-door", "forged"), ("apikey", "k")],
-			"/v1/fn/hello",
+			"/functions/v1/hello",
 			false,
 		);
 		assert_eq!(functions["x-snoutdata-door"], "door");
 		let rest = prepare(
 			&[("x-snoutdata-door", "forged"), ("apikey", "k")],
-			"/v1/data/t",
+			"/rest/v1/t",
 			false,
 		);
 		assert!(!rest.contains_key("x-snoutdata-door"));
@@ -740,7 +740,7 @@ mod tests {
 				("x-snoutdata-client", "1.2.3.4"),
 				("apikey", "k"),
 			],
-			"/v1/identity/token",
+			"/auth/v1/token",
 			false,
 		);
 		assert_eq!(headers["x-snoutdata-client"], "10.0.0.9");
@@ -759,10 +759,10 @@ mod tests {
 			])
 			.collect();
 		for path in [
-			"/v1/identity/token",
-			"/v1/data/t",
-			"/v1/files/file/b/o",
-			"/v1/fn/hello",
+			"/auth/v1/token",
+			"/rest/v1/t",
+			"/storage/v1/object/b/o",
+			"/functions/v1/hello",
 		] {
 			let headers = prepare(&spoofed, path, false);
 			assert_eq!(headers["x-forwarded-for"], "10.0.0.9", "{path}");
@@ -794,10 +794,10 @@ mod tests {
 	fn graphql_names_its_schema_whatever_the_client_says() {
 		let headers = prepare(
 			&[("content-profile", "public"), ("apikey", "k")],
-			"/v1/graph",
+			"/graphql/v1",
 			false,
 		);
-		assert_eq!(headers["content-profile"], "snout_graph");
+		assert_eq!(headers["content-profile"], "graphql_public");
 	}
 
 	#[test]

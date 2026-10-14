@@ -60,8 +60,8 @@ pub struct Values {
 pub fn fresh() -> Values {
 	let reference = keys::new_ref();
 	let jwt_secret = keys::random(48);
-	let anon = keys::api_key(&jwt_secret, "snout_app");
-	let service = keys::api_key(&jwt_secret, "snout_server");
+	let anon = keys::api_key(&jwt_secret, "anon");
+	let service = keys::api_key(&jwt_secret, "service_role");
 	Values {
 		pairs: vec![
 			(
@@ -90,12 +90,12 @@ pub fn fresh() -> Values {
 				"Signs every token. Changing it retires both keys below and every session.",
 			),
 			(
-				"APP_KEY",
+				"ANON_KEY",
 				anon,
 				"The public key: ships in your application.",
 			),
 			(
-				"SERVER_KEY",
+				"SERVICE_ROLE_KEY",
 				service,
 				"The server key: bypasses row-level security. Never ship it.",
 			),
@@ -224,7 +224,7 @@ mod tests {
 				.unwrap()
 		};
 		assert!(keys::is_ref(&get("SNOUT_REF")));
-		assert_eq!(get("APP_KEY"), keys::api_key(&get("JWT_SECRET"), "snout_app"));
+		assert_eq!(get("ANON_KEY"), keys::api_key(&get("JWT_SECRET"), "anon"));
 		assert_eq!(get("REALTIME_DB_ENC_KEY").len(), 16);
 		assert!(get("JWT_SECRET").len() >= 32);
 	}

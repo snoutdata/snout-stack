@@ -5,7 +5,7 @@ and GraphQL data API, file storage, Realtime and functions, behind one gateway o
 same servers SnoutData Cloud runs, in the same arrangement, holding one project.
 
 The JavaScript, Dart, Swift and Python client libraries your application may already use for this
-kind of API work against it unchanged: point them at the gateway with the app key.
+kind of API work against it unchanged: point them at the gateway with the anon key.
 
 | Service | What it is |
 |---|---|
@@ -21,7 +21,9 @@ kind of API work against it unchanged: point them at the gateway with the app ke
 | `push` | [snout-push](https://github.com/snoutdata/snout-push): push notifications to iPhone, Android and the web, at `/push/v1` |
 | `metadata`, `setup`, `functions-deploy` | the shared servers' own small database, and two one-shot steps |
 
-**Size (estimated):** about 200 MB of memory running, and about 2 GB of disk for the images.
+**Size (measured on a 2-core arm64 machine, 2026-10-14, default profiles):** about 170 MB of memory
+idle and about 360 MB under a modest load, as `docker stats` counts it, so 1 GB of memory is
+comfortable; 1.9 GB of disk for the images, a 670 MB download.
 
 ## Quickstart
 
@@ -40,22 +42,22 @@ your clients were given.
 
 The API is at `http://localhost:8000`. The two keys are in `.env`:
 
-- `APP_KEY` ships in your application. What it can reach is what your row-level security
-  policies grant the `snout_app` and `snout_member` roles.
-- `SERVER_KEY` bypasses row-level security. Keep it on your servers.
+- `ANON_KEY` ships in your application. What it can reach is what your row-level security
+  policies grant the `anon` and `authenticated` roles.
+- `SERVICE_ROLE_KEY` bypasses row-level security. Keep it on your servers.
 
 ```js
-const client = snout('http://localhost:8000', process.env.APP_KEY)
+const client = createClient('http://localhost:8000', process.env.ANON_KEY)
 ```
 
 | Path | Service |
 |---|---|
-| `/v1/data/` | the data API |
-| `/v1/graph` | GraphQL |
-| `/v1/identity/` | auth |
-| `/v1/files/` | storage |
-| `/v1/live/` | Realtime (WebSocket, and `api/broadcast` over HTTP) |
-| `/v1/fn/<name>` | your functions |
+| `/rest/v1/` | the data API |
+| `/graphql/v1` | GraphQL |
+| `/auth/v1/` | auth |
+| `/storage/v1/` | storage |
+| `/realtime/v1/` | Realtime (WebSocket, and `api/broadcast` over HTTP) |
+| `/functions/v1/<name>` | your functions |
 
 The database itself is on `127.0.0.1:5432`: database `<SNOUT_REF>`, user `<SNOUT_REF>_owner`,
 password `POSTGRES_OWNER_PASSWORD`. The owner can do everything in its database, including
@@ -63,7 +65,7 @@ creating the extensions the image offers, and is not a superuser.
 
 ## Functions
 
-A function is a folder: `functions/<name>/index.ts`, served at `/v1/fn/<name>`. Code shared
+A function is a folder: `functions/<name>/index.ts`, served at `/functions/v1/<name>`. Code shared
 between functions goes in `functions/_shared/` and is imported by relative path. `npm:`, `jsr:`
 and URL imports are resolved when you deploy, never on a request. `functions/hello` is an example.
 
@@ -71,9 +73,9 @@ and URL imports are resolved when you deploy, never on a request. `functions/hel
 docker compose run --rm functions-deploy     # after any change; the runtime picks it up at once
 ```
 
-Every function gets `SNOUTDATA_URL`, `SNOUTDATA_APP_KEY` and `SNOUTDATA_SERVER_KEY`. Your
+Every function gets `SNOUTDATA_URL`, `SNOUTDATA_ANON_KEY` and `SNOUTDATA_SERVICE_ROLE_KEY`. Your
 own secrets go in `functions/.env` (`NAME=value` lines), which reach the functions as variables
-and are never copied into a bundle. A call needs the app or server key unless the function is
+and are never copied into a bundle. A call needs the anon or service key unless the function is
 listed in `FUNCTIONS_NO_VERIFY_JWT` (a webhook's receiver).
 
 The functions container sits on a network of its own with the gateway: a function reaches the
@@ -122,7 +124,7 @@ Everything is in `.env`. `init` writes the secrets; the rest have defaults and c
 | `S3_FORCE_PATH_STYLE` | `true` | |
 | `STORAGE_FILE_SIZE_LIMIT` | `52428800` | The largest upload, in bytes |
 | `AUTH_MAILER_AUTOCONFIRM` | `false` | Sign-ups are confirmed without a mail. Until you set up mail, nobody can confirm one |
-| `AUTH_ANONYMOUS_USERS_ENABLED` | `false` | Guest sign-in: `guestSignIn()` signs in a user with no email or password, 30 per caller per hour |
+| `AUTH_ANONYMOUS_USERS_ENABLED` | `false` | Guest sign-in: `signInAnonymously()` signs in a user with no email or password, 30 per caller per hour |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_ADMIN_EMAIL`, `SMTP_SENDER_NAME` | none, `587` | The mail server for confirmations, links and codes |
 | `AUTH_DISABLE_SIGNUP` | `false` | Refuse new users (invites still work) |
 | `AUTH_URI_ALLOW_LIST` | none | Other redirect targets, comma separated globs |
@@ -130,7 +132,7 @@ Everything is in `.env`. `init` writes the secrets; the rest have defaults and c
 | `GOOGLE_ENABLED`, `GOOGLE_CLIENT_ID`, `GOOGLE_SECRET` | off | Sign in with Google; the redirect URI is `<API_EXTERNAL_URL>/auth/v1/callback` |
 | `GITHUB_ENABLED`, `GITHUB_CLIENT_ID`, `GITHUB_SECRET` | off | The same for GitHub |
 | `SAML_ENABLED`, `SAML_PRIVATE_KEY` | off | SAML single sign-on (snout-auth's README) |
-| `REST_SCHEMAS` | `public, snout_graph` | Schemas the data API serves |
+| `REST_SCHEMAS` | `public, graphql_public` | Schemas the data API serves |
 | `REST_DB_POOL` | `10` | The data API's connections |
 | `FUNCTIONS_MEMORY_MB`, `FUNCTIONS_WALL_MS`, `FUNCTIONS_CPU_MS` | `256`, `60000`, `5000` | Each function's limits |
 | `FUNCTIONS_NO_VERIFY_JWT` | none | Functions callable without a key, comma separated |
@@ -180,8 +182,8 @@ Each server's own page lists the rest of its settings.
 The `auth`, `storage` and `realtime` schemas are the ones the client libraries' servers have always
 used, so a project from another server of the same API moves with its database: restore a dump
 into `db` as the owner, copy its files into the bucket under the same keys, and give your clients
-the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `APP_KEY` and
-`SERVER_KEY` in `.env` to the old values before the first `up`).
+the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `ANON_KEY` and
+`SERVICE_ROLE_KEY` in `.env` to the old values before the first `up`).
 
 ## The `snout-stack` binary
 
@@ -196,6 +198,12 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `APP_KEY` an
 
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
+
+### 2026-10-14: image resizing works
+
+`compose.yaml` turns on storage's render routes (`ENABLE_IMAGE_TRANSFORMATION`). Without it the
+`images` service ran and every `/storage/v1/render/image/...` request answered 404. No image
+moves: `docker compose up -d` takes it.
 
 ### 2026-10-14: snout-containers 0.1.2, a running total of what each container sent
 
@@ -221,14 +229,14 @@ time, each under gVisor with its own limits and network, from a JSON file per pr
 
 One server moves; `snout-stack` itself is unchanged at 0.1.4.
 
-- **Realtime handlers.** `select snout_live.on('send', 'public.send_message(jsonb)', 'room:*')` makes
+- **Realtime handlers.** `select realtime.on('send', 'public.send_message(jsonb)', 'room:*')` makes
   a SQL function run when a client sends that event: as that user, under your row-level security,
   in one transaction, and what it returns is the reply (`channel.call()` in `@snoutdata/client`
-  0.3.4). What it sends with `snout_live.emit()` goes out only if it commits.
+  0.3.4). What it sends with `realtime.emit()` goes out only if it commits.
 - **Socket.IO.** The official `socket.io-client` connects unmodified at
-  `path: '/v1/live/socket.io/'`, over long-polling and websocket. Your server's listeners are
+  `path: '/realtime/v1/socket.io/'`, over long-polling and websocket. Your server's listeners are
   the handlers, the ack is the return value, and a room is a Realtime topic.
-- **`snout_live.signal()` as the project's owner.** The owner role is granted `snout_live.signals` as
+- **`realtime.send()` as the project's owner.** The owner role is granted `realtime.messages` as
   the API roles are, so a broadcast from the owner's own SQL, triggers and jobs is delivered.
 
 Nothing to do but pull: Realtime adds its handler table to the project database on its next
@@ -242,7 +250,7 @@ Two servers move; `snout-stack` itself is unchanged at 0.1.4.
 - **snout-realtime 0.1.6.**
   - A channel joined without a `join_ref` is known by the join's `ref`, so `phx_close` and system
     messages carry it to a hand-written client.
-  - A join whose `config.presence` leaves out `enabled` is sent `roster_state`.
+  - A join whose `config.presence` leaves out `enabled` is sent `presence_state`.
   - A message on a channel the server closed is told why.
 - **snout-functions 0.2.5.** What a function prints with `console.log` or `console.error` comes out
   as one JSON line naming the project and function, with the time and level, so

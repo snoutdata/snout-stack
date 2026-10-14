@@ -1,5 +1,5 @@
-create schema if not exists snout_ext;
-create or replace function snout_ext.snoutpod_grant_new_schema() returns event_trigger
+create schema if not exists extensions;
+create or replace function extensions.snoutpod_grant_new_schema() returns event_trigger
 language plpgsql set search_path = pg_catalog as $snoutpod$
 declare
 	created record;
@@ -20,7 +20,7 @@ begin
 	if not exists (select 1 from pg_event_trigger where evtname = 'snoutpod_grant_new_schema') then
 		create event trigger snoutpod_grant_new_schema on ddl_command_end
 			when tag in ('CREATE SCHEMA')
-			execute function snout_ext.snoutpod_grant_new_schema();
+			execute function extensions.snoutpod_grant_new_schema();
 	end if;
 end
 $snoutpod$;

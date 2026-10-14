@@ -35,7 +35,7 @@ use crate::s3;
 
 /// The roles the database image makes for the servers, which they log in as.
 const AUTH_ROLE: &str = "snout_auth_admin";
-const REST_ROLE: &str = "snout_gate";
+const REST_ROLE: &str = "authenticator";
 const STORAGE_ROLE: &str = "snout_storage_admin";
 const REALTIME_ROLE: &str = "snout_realtime_admin";
 const PUSH_ROLE: &str = "snout_push_admin";
@@ -65,8 +65,8 @@ const WAIT: Duration = Duration::from_secs(180);
 struct Settings {
 	reference: String,
 	jwt_secret: String,
-	app_key: String,
-	server_key: String,
+	anon_key: String,
+	service_key: String,
 	auth_password: String,
 	rest_password: String,
 	/// Unset in a stack made before push, which then runs without it.
@@ -98,8 +98,8 @@ fn settings() -> Result<Settings, String> {
 	Ok(Settings {
 		reference: env::required("SNOUT_REF")?,
 		jwt_secret: env::required("JWT_SECRET")?,
-		app_key: env::required("APP_KEY")?,
-		server_key: env::required("SERVER_KEY")?,
+		anon_key: env::required("ANON_KEY")?,
+		service_key: env::required("SERVICE_ROLE_KEY")?,
 		auth_password: env::required("AUTH_DB_PASSWORD")?,
 		rest_password: env::required("REST_DB_PASSWORD")?,
 		push_password: env::optional("PUSH_DB_PASSWORD"),
@@ -185,7 +185,7 @@ pub async fn run() -> Result<(), String> {
 		let headers = vec![
 			(
 				"authorization".to_owned(),
-				format!("Bearer {}", s.server_key),
+				format!("Bearer {}", s.service_key),
 			),
 			(
 				"x-forwarded-host".to_owned(),
@@ -304,8 +304,8 @@ async fn create_bucket(http: &Http, bucket: &Bucket) -> Result<(), String> {
 
 async fn register_storage(http: &Http, s: &Settings, password: &str) -> Result<(), String> {
 	let body = json!({
-		"appKey": s.app_key,
-		"serverKey": s.server_key,
+		"anonKey": s.anon_key,
+		"serviceKey": s.service_key,
 		"jwtSecret": s.jwt_secret,
 		"databaseUrl": format!("postgres://{STORAGE_ROLE}:{password}@{}:5432/{}", s.tenant_db_host, s.reference),
 		"fileSizeLimit": s.file_size_limit,
