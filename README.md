@@ -197,6 +197,12 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `APP_KEY` an
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
 
+### 2026-10-14: snout-containers 0.1.2, a running total of what each container sent
+
+One server moves. Each container's `status.json` row also carries `totalSentBytes` and the `epoch`
+it counts from, for a monthly count of your own, and a restarted runner no longer reports what the
+firewall counted before it started as the last minute's.
+
 ### 2026-10-13: snout-containers 0.1.1, limits on what a container sends
 
 One server moves. A container may open 20 connections a second (bursts of 200), hold 1,000 open and

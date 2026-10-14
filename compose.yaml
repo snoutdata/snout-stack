@@ -332,7 +332,7 @@ services:
   # podman as that user; set SNOUT_CONTAINERS_RUNTIME_DIR to their runtime directory. Without the
   # engine it runs nothing and says why on its /health.
   containers:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-containers:0.1.1
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-containers:0.1.2
     profiles: [containers]
     restart: unless-stopped
     environment:
