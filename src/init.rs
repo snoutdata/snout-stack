@@ -7,6 +7,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 use crate::keys;
+use crate::setup::NEW_LAYOUT;
 
 pub fn run(args: &[String]) -> Result<(), String> {
 	let mut out: Option<String> = None;
@@ -117,7 +118,7 @@ pub fn fresh() -> Values {
 			(
 				"REST_DB_PASSWORD",
 				keys::random(24),
-				"The data API's database role (authenticator).",
+				"The data API's database role (snout_gate).",
 			),
 			(
 				"PUSH_DB_PASSWORD",
@@ -180,6 +181,49 @@ pub fn fresh() -> Values {
 				keys::random(32),
 				"Proves to the functions runtime that a request came through the gateway.",
 			),
+			// The database's layout (its old or new names): a new stack's database is made in
+			// the new one, and these name it. A stack made before has none of them and runs on the
+			// old layout until its database is renamed (README.md, "Layout").
+			(
+				"REST_DB_USER",
+				NEW_LAYOUT.rest_user.into(),
+				"The data API's login role: snout_gate (authenticator in the old layout). This and the seven below name the database's layout; change them only with it (README.md, \"Layout\").",
+			),
+			(
+				"REST_ANON_ROLE",
+				"snout_app".into(),
+				"The data API's role for a request with only the app key (anon in the old layout).",
+			),
+			(
+				"REST_SCHEMAS",
+				format!("public,{}", NEW_LAYOUT.graphql_schema),
+				"Schemas the data API serves (public,graphql_public in the old layout).",
+			),
+			(
+				"GRAPHQL_SCHEMA",
+				NEW_LAYOUT.graphql_schema.into(),
+				"Where GraphQL's endpoint is (graphql_public in the old layout).",
+			),
+			(
+				"AUTH_DB_NAMESPACE",
+				NEW_LAYOUT.auth_namespace.into(),
+				"The auth server's schema (auth in the old layout).",
+			),
+			(
+				"AUTH_JWT_AUD",
+				"snout_member".into(),
+				"A signed-in person's token audience (authenticated in the old layout).",
+			),
+			(
+				"AUTH_JWT_DEFAULT_GROUP_NAME",
+				"snout_member".into(),
+				"A signed-in person's role (authenticated in the old layout).",
+			),
+			(
+				"AUTH_JWT_ADMIN_ROLES",
+				"snout_server".into(),
+				"The role allowed the auth server's admin routes (service_role in the old layout).",
+			),
 		],
 	}
 }
@@ -200,11 +244,19 @@ mod tests {
 	use super::*;
 
 	/// Settings rather than secrets: the same in every stack until someone changes them.
-	const FIXED: [&str; 4] = [
+	const FIXED: [&str; 12] = [
 		"COMPOSE_PROFILES",
 		"S3_ENDPOINT",
 		"S3_BUCKET",
 		"PUSH_VAPID_SUBJECT",
+		"REST_DB_USER",
+		"REST_ANON_ROLE",
+		"REST_SCHEMAS",
+		"GRAPHQL_SCHEMA",
+		"AUTH_DB_NAMESPACE",
+		"AUTH_JWT_AUD",
+		"AUTH_JWT_DEFAULT_GROUP_NAME",
+		"AUTH_JWT_ADMIN_ROLES",
 	];
 
 	#[test]
@@ -227,6 +279,35 @@ mod tests {
 		assert_eq!(get("ANON_KEY"), keys::api_key(&get("JWT_SECRET"), "anon"));
 		assert_eq!(get("REALTIME_DB_ENC_KEY").len(), 16);
 		assert!(get("JWT_SECRET").len() >= 32);
+	}
+
+	#[test]
+	fn a_new_stack_is_in_the_new_layout() {
+		let one = fresh();
+		let get = |name: &str| {
+			one.pairs
+				.iter()
+				.find(|(n, ..)| *n == name)
+				.map(|(_, v, _)| v.clone())
+				.unwrap_or_default()
+		};
+		let layout = crate::setup::Layout {
+			rest_user: get("REST_DB_USER"),
+			auth_namespace: get("AUTH_DB_NAMESPACE"),
+			graphql_schema: get("GRAPHQL_SCHEMA"),
+		};
+		// What setup checks against a new database agrees; against an old one it would not.
+		assert_eq!(crate::setup::layout_mismatch(true, &layout), None);
+		assert!(crate::setup::layout_mismatch(false, &layout).is_some());
+		assert_eq!(get("REST_ANON_ROLE"), "snout_app");
+		assert_eq!(get("REST_SCHEMAS"), "public,snout_graph");
+		assert_eq!(
+			crate::routes::graphql_schema(Some(&get("GRAPHQL_SCHEMA"))),
+			Ok("snout_graph")
+		);
+		assert_eq!(get("AUTH_JWT_AUD"), "snout_member");
+		assert_eq!(get("AUTH_JWT_DEFAULT_GROUP_NAME"), "snout_member");
+		assert_eq!(get("AUTH_JWT_ADMIN_ROLES"), "snout_server");
 	}
 
 	#[test]

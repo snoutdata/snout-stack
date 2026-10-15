@@ -61,7 +61,34 @@ struct Prefix {
 	headers: &'static [(&'static str, &'static str)],
 }
 
-/// Longest first, so a prefix is never shadowed by a shorter neighbour.
+/// Not a process: the GraphQL resolver is a Postgres function the data API calls, in the schema
+/// this header names. `graphql_public` here; `prepare_headers` sends the database's own
+/// (`GRAPHQL_SCHEMA`, `snout_graph` in the new layout).
+const GRAPHQL_PROFILE: &[(&str, &str)] = &[("content-profile", "graphql_public")];
+
+/// The schemas GraphQL's endpoint function may be in: the old layout's, then the new one's
+/// (the own layout).
+pub const GRAPHQL_SCHEMAS: [&str; 2] = ["graphql_public", "snout_graph"];
+
+/// `GRAPHQL_SCHEMA`, checked: unset is the old layout's, and anything but the two is refused, since
+/// the data API would answer every GraphQL request with a missing function.
+pub fn graphql_schema(value: Option<&str>) -> Result<&'static str, String> {
+	match value {
+		None => Ok(GRAPHQL_SCHEMAS[0]),
+		Some(name) => GRAPHQL_SCHEMAS
+			.into_iter()
+			.find(|known| *known == name)
+			.ok_or_else(|| {
+				format!("GRAPHQL_SCHEMA is graphql_public or snout_graph, not {name:?}")
+			}),
+	}
+}
+
+/// Longest first within a family, so a prefix is never shadowed by a shorter neighbour.
+///
+/// Two vocabularies (the own layout), as the hosted door serves them: the upstream
+/// platform's prefixes (`/rest/v1` and its neighbours), which every client released so far carries,
+/// and ours (`/v1/data` ...). Each pair reaches the same service with the same rebasing.
 const PREFIXES: &[Prefix] = &[
 	Prefix {
 		prefix: "/rest/v1",
@@ -69,13 +96,23 @@ const PREFIXES: &[Prefix] = &[
 		base: "",
 		headers: &[],
 	},
-	// Not a process: the GraphQL resolver is a Postgres function the data API calls, in the
-	// schema this header names.
+	Prefix {
+		prefix: "/v1/data",
+		service: Service::Rest,
+		base: "",
+		headers: &[],
+	},
 	Prefix {
 		prefix: "/graphql/v1",
 		service: Service::Graphql,
 		base: "/rpc/graphql",
-		headers: &[("content-profile", "graphql_public")],
+		headers: GRAPHQL_PROFILE,
+	},
+	Prefix {
+		prefix: "/v1/graph",
+		service: Service::Graphql,
+		base: "/rpc/graphql",
+		headers: GRAPHQL_PROFILE,
 	},
 	Prefix {
 		prefix: "/auth/v1",
@@ -83,17 +120,36 @@ const PREFIXES: &[Prefix] = &[
 		base: "",
 		headers: &[],
 	},
-	// The prefix is told back to storage so a resumable upload's `Location` is reachable.
+	Prefix {
+		prefix: "/v1/identity",
+		service: Service::Auth,
+		base: "",
+		headers: &[],
+	},
+	// The prefix is told back to storage so a resumable upload's `Location` is reachable, in the
+	// vocabulary the client asked in.
 	Prefix {
 		prefix: "/storage/v1",
 		service: Service::Storage,
 		base: "",
 		headers: &[("x-forwarded-prefix", "/storage/v1")],
 	},
+	Prefix {
+		prefix: "/v1/files",
+		service: Service::Storage,
+		base: "",
+		headers: &[("x-forwarded-prefix", "/v1/files")],
+	},
 	// Broadcast over HTTP. Exactly this path under `/api`: the tenant API beside it is the
-	// server's admin surface and is never reachable from outside.
+	// server's admin surface and is never reachable from outside. `/v1/live/signal` is its new name.
 	Prefix {
 		prefix: "/realtime/v1/api/broadcast",
+		service: Service::Realtime,
+		base: "/api/broadcast",
+		headers: &[],
+	},
+	Prefix {
+		prefix: "/v1/live/signal",
 		service: Service::Realtime,
 		base: "/api/broadcast",
 		headers: &[],
@@ -105,7 +161,19 @@ const PREFIXES: &[Prefix] = &[
 		headers: &[],
 	},
 	Prefix {
+		prefix: "/v1/live",
+		service: Service::Realtime,
+		base: "/socket",
+		headers: &[],
+	},
+	Prefix {
 		prefix: "/functions/v1",
+		service: Service::Functions,
+		base: "",
+		headers: &[],
+	},
+	Prefix {
+		prefix: "/v1/fn",
 		service: Service::Functions,
 		base: "",
 		headers: &[],
@@ -119,6 +187,34 @@ const PREFIXES: &[Prefix] = &[
 		headers: &[],
 	},
 ];
+
+/// Each new prefix and the old one it aliases. The open-path lists below are written once, in the
+/// old vocabulary, and a path on a new prefix is read through `in_old_vocabulary`.
+const PREFIX_ALIASES: &[(&str, &str)] = &[
+	("/rest/v1", "/v1/data"),
+	("/graphql/v1", "/v1/graph"),
+	("/auth/v1", "/v1/identity"),
+	("/storage/v1", "/v1/files"),
+	("/realtime/v1/api/broadcast", "/v1/live/signal"),
+	("/realtime/v1", "/v1/live"),
+	("/functions/v1", "/v1/fn"),
+];
+
+/// A path on a new prefix, said with the old prefix it aliases. Any other path unchanged.
+pub fn in_old_vocabulary(path: &str) -> String {
+	for (old, renamed) in PREFIX_ALIASES {
+		if let Some(rest) = path.strip_prefix(renamed)
+			&& (rest.is_empty() || rest.starts_with('/') || rest.starts_with('?'))
+		{
+			return format!("{old}{rest}");
+		}
+	}
+	path.to_owned()
+}
+
+/// The header a key may arrive in under its new name (OWN-LAYOUT 2c); `apikey` is the old one.
+/// The same key and the same check; the services behind the door read `apikey`.
+pub const KEY_HEADER: &str = "snout-key";
 
 pub fn service_for_path(path_and_query: &str) -> Option<Match> {
 	let (path, query) = match path_and_query.split_once('?') {
@@ -159,6 +255,10 @@ const OPEN_AUTH_PATHS: &[&str] = &[
 	"/auth/v1/callback",
 	"/auth/v1/sso/saml/acs",
 	"/auth/v1/sso/saml/metadata",
+	// The same three endpoints under snout-auth's new names (OWN-LAYOUT 2e).
+	"/auth/v1/confirm",
+	"/auth/v1/provider/start",
+	"/auth/v1/provider/return",
 ];
 
 const OPEN_STORAGE_READS: &[&str] = &[
@@ -166,6 +266,16 @@ const OPEN_STORAGE_READS: &[&str] = &[
 	"/storage/v1/object/sign/",
 	"/storage/v1/render/image/public/",
 	"/storage/v1/render/image/sign/",
+	// snout-storage's new route names (OWN-LAYOUT 2e), the same four endpoints.
+	"/storage/v1/file/public/",
+	"/storage/v1/file/signed/",
+	"/storage/v1/image/public/",
+	"/storage/v1/image/signed/",
+];
+
+const OPEN_STORAGE_UPLOADS: &[&str] = &[
+	"/storage/v1/object/upload/sign/",
+	"/storage/v1/file/upload/signed/",
 ];
 
 fn path_only(path_and_query: &str) -> &str {
@@ -180,13 +290,16 @@ fn under(path: &str, prefix: &str) -> bool {
 }
 
 pub fn is_open_path(method: &str, path_and_query: &str) -> bool {
-	let path = path_only(path_and_query);
+	let path = in_old_vocabulary(path_only(path_and_query));
+	let path = path.as_str();
 	if OPEN_AUTH_PATHS.iter().any(|open| under(path, open)) {
 		return true;
 	}
 	// Minting a signed URL (POST) is authorised; redeeming one (GET, or PUT for an upload) is not.
 	if method.eq_ignore_ascii_case("PUT") {
-		return path.starts_with("/storage/v1/object/upload/sign/");
+		return OPEN_STORAGE_UPLOADS
+			.iter()
+			.any(|open| path.starts_with(open));
 	}
 	let reading = method.eq_ignore_ascii_case("GET") || method.eq_ignore_ascii_case("HEAD");
 	reading && OPEN_STORAGE_READS.iter().any(|open| path.starts_with(open))
@@ -286,7 +399,7 @@ pub fn authorise(
 		return Err(Refusal {
 			status: 401,
 			message: "No API key found in request, or the key is not one of this project's.",
-			hint: Some("Send the project's anon or service_role key as the `apikey` header."),
+			hint: Some("Send one of the project's keys as the `Snout-Key` header (or `apikey`)."),
 			code: "no_api_key",
 		});
 	}
@@ -359,6 +472,8 @@ pub fn client_address(configured: Option<&str>, peer: std::net::IpAddr) -> Strin
 
 pub struct Prepare<'a> {
 	pub reference: &'a str,
+	/// The schema GraphQL's endpoint function is in, as the database has it (`graphql_schema`).
+	pub graphql_schema: &'a str,
 	/// The name the shared servers are told: `<ref>.<domain>`.
 	pub domain: &'a str,
 	/// The caller's address.
@@ -393,8 +508,10 @@ pub fn prepare_headers(
 	}
 
 	// The key from the query, for the realtime socket and an `<img>`, which cannot send headers.
+	// `Snout-Key` is the new name of `apikey`: copied to it, since the services read `apikey`.
 	let api_key = headers
 		.get("apikey")
+		.or_else(|| headers.get(KEY_HEADER))
 		.cloned()
 		.or_else(|| query_api_key(path_and_query));
 	if let Some(key) = &api_key {
@@ -444,6 +561,10 @@ pub fn prepare_headers(
 	}
 	for (name, value) in matched.fixed_headers {
 		headers.insert((*name).into(), (*value).into());
+	}
+	// GraphQL's function is in the database's own schema: `snout_graph` in the new layout.
+	if matched.service == Service::Graphql {
+		headers.insert("content-profile".into(), options.graphql_schema.into());
 	}
 	// The proof a request came through the door, sent to the functions runtime only.
 	headers.remove(FUNCTIONS_DOOR_HEADER);
@@ -510,7 +631,7 @@ pub fn cors_headers(
 		(
 			"access-control-allow-headers",
 			request_headers
-				.unwrap_or("authorization, apikey, x-api-key, x-client-info, content-type, accept, accept-profile, content-profile, prefer, range, x-upsert")
+				.unwrap_or("authorization, apikey, snout-key, x-api-key, x-client-info, content-type, accept, accept-profile, content-profile, prefer, range, x-upsert")
 				.to_owned(),
 		),
 		("access-control-expose-headers", "content-range, content-length, content-encoding, etag, x-total-count".to_owned()),
@@ -525,6 +646,104 @@ mod tests {
 
 	fn matched(path: &str) -> Match {
 		service_for_path(path).expect("routed")
+	}
+
+	#[test]
+	fn the_new_prefixes_route_as_the_old_ones_do() {
+		for (old, new) in [
+			("/rest/v1/todos?select=*", "/v1/data/todos?select=*"),
+			("/rest/v1", "/v1/data"),
+			("/graphql/v1", "/v1/graph"),
+			(
+				"/auth/v1/session?via=password",
+				"/v1/identity/session?via=password",
+			),
+			("/realtime/v1/api/broadcast", "/v1/live/signal"),
+			(
+				"/realtime/v1/websocket?vsn=1.0.0",
+				"/v1/live/websocket?vsn=1.0.0",
+			),
+			("/functions/v1/hello/x", "/v1/fn/hello/x"),
+		] {
+			let (o, n) = (matched(old), matched(new));
+			assert_eq!(
+				(o.service, &o.upstream_path),
+				(n.service, &n.upstream_path),
+				"{new}"
+			);
+			assert_eq!(o.fixed_headers, n.fixed_headers, "{new}");
+			assert_eq!(in_old_vocabulary(new), old);
+		}
+		let files = matched("/v1/files/file/avatars/a.png");
+		assert_eq!(files.service, Service::Storage);
+		assert_eq!(files.upstream_path, "/file/avatars/a.png");
+		assert_eq!(files.fixed_headers, &[("x-forwarded-prefix", "/v1/files")]);
+		assert!(service_for_path("/v1/database").is_none());
+		assert!(service_for_path("/v1/fnord").is_none());
+		assert_eq!(in_old_vocabulary("/v1/fnord"), "/v1/fnord");
+		// What is open is open under either name.
+		for (method, path) in [
+			("GET", "/v1/identity/verify?token=x"),
+			("GET", "/v1/identity/confirm?token=x"),
+			("GET", "/v1/identity/provider/return"),
+			("GET", "/v1/files/object/public/a/b.png"),
+			("GET", "/v1/files/file/public/a/b.png"),
+			("HEAD", "/v1/files/image/signed/a/b.png"),
+			("PUT", "/v1/files/file/upload/signed/a/b.png"),
+			("PUT", "/storage/v1/object/upload/sign/a/b.png"),
+		] {
+			assert!(is_open_path(method, path), "{method} {path}");
+		}
+		for (method, path) in [
+			("POST", "/v1/files/file/signed/a/b.png"),
+			("GET", "/v1/files/file/a/b.png"),
+			("GET", "/v1/data/todos"),
+			("PUT", "/v1/files/file/a/b.png"),
+		] {
+			assert!(!is_open_path(method, path), "{method} {path}");
+		}
+	}
+
+	#[test]
+	fn graphql_is_sent_to_the_schema_the_database_has() {
+		let incoming = vec![("content-profile".to_string(), "public".to_string())];
+		for schema in GRAPHQL_SCHEMAS {
+			let options = Prepare {
+				reference: "abcdefghjkmnp",
+				graphql_schema: schema,
+				domain: "stack.internal",
+				source: "10.0.0.9",
+				scheme: "https",
+				upgrade: false,
+				functions_door: None,
+			};
+			for path in ["/graphql/v1", "/v1/graph"] {
+				let (headers, _) = prepare_headers(&incoming, path, &matched(path), &options);
+				assert_eq!(headers["content-profile"], schema, "{path}");
+			}
+			// Nothing else is told a GraphQL schema.
+			let (headers, _) =
+				prepare_headers(&incoming, "/v1/data/t", &matched("/v1/data/t"), &options);
+			assert_eq!(headers["content-profile"], "public");
+		}
+		assert_eq!(graphql_schema(None), Ok("graphql_public"));
+		assert_eq!(graphql_schema(Some("snout_graph")), Ok("snout_graph"));
+		assert!(graphql_schema(Some("public")).is_err());
+	}
+
+	#[test]
+	fn a_key_under_its_new_name_is_the_same_key() {
+		let headers = prepare(&[("Snout-Key", "anon-key")], "/v1/data/todos", false);
+		assert_eq!(headers["apikey"], "anon-key");
+		assert_eq!(headers["authorization"], "Bearer anon-key");
+		// Both sent: `apikey` is the one read, as before.
+		let headers = prepare(
+			&[("apikey", "old"), ("snout-key", "new")],
+			"/rest/v1/todos",
+			false,
+		);
+		assert_eq!(headers["apikey"], "old");
+		assert!(cors_headers(None, None)[2].1.contains("snout-key"));
 	}
 
 	#[test]
@@ -660,6 +879,7 @@ mod tests {
 			.collect();
 		let options = Prepare {
 			reference: "abcdefghjkmnp",
+			graphql_schema: "graphql_public",
 			domain: "stack.internal",
 			source: "10.0.0.9",
 			scheme: "https",

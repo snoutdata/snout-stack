@@ -25,12 +25,17 @@ use sha2::{Digest, Sha256};
 
 use crate::env;
 use crate::keys;
+use crate::layout;
 
 /// The variables every function is given, set from the stack's own keys.
-pub const PLATFORM_ENV: [&str; 3] = [
+/// The two keys go in under both their old and new names (`layout::FUNCTION_ENV`) until the
+/// old ones are retired (the own layout's last phase).
+pub const PLATFORM_ENV: [&str; 5] = [
 	"SNOUTDATA_URL",
-	"SNOUTDATA_ANON_KEY",
-	"SNOUTDATA_SERVICE_ROLE_KEY",
+	layout::FUNCTION_ENV[0].0,
+	layout::FUNCTION_ENV[1].0,
+	layout::FUNCTION_ENV[0].1,
+	layout::FUNCTION_ENV[1].1,
 ];
 
 /// Entrypoints, in the order they are looked for.
@@ -336,12 +341,24 @@ fn platform_env() -> Result<BTreeMap<String, String>, String> {
 		PLATFORM_ENV[0].to_owned(),
 		env::optional("FUNCTIONS_API_URL").unwrap_or_else(|| "http://gateway:8000".into()),
 	);
-	out.insert(PLATFORM_ENV[1].to_owned(), env::required("ANON_KEY")?);
-	out.insert(
-		PLATFORM_ENV[2].to_owned(),
-		env::required("SERVICE_ROLE_KEY")?,
-	);
+	out.extend(key_env(
+		&env::required("ANON_KEY")?,
+		&env::required("SERVICE_ROLE_KEY")?,
+	));
 	Ok(out)
+}
+
+/// The two keys, under every name a function may read them by.
+fn key_env(app_key: &str, server_key: &str) -> BTreeMap<String, String> {
+	let mut out = BTreeMap::new();
+	let [(old_app, new_app), (old_server, new_server)] = layout::FUNCTION_ENV;
+	for name in [old_app, new_app] {
+		out.insert(name.to_owned(), app_key.to_owned());
+	}
+	for name in [old_server, new_server] {
+		out.insert(name.to_owned(), server_key.to_owned());
+	}
+	out
 }
 
 /// One function as the manifest names it. `verifyJwt` is false only for a function the gateway lets
@@ -431,6 +448,20 @@ mod tests {
 			.iter()
 			.map(|(p, t)| ((*p).to_owned(), t.as_bytes().to_vec()))
 			.collect()
+	}
+
+	#[test]
+	fn both_key_names_are_given_and_reserved() {
+		let env = key_env("app", "server");
+		assert_eq!(env["SNOUTDATA_ANON_KEY"], "app");
+		assert_eq!(env["SNOUTDATA_APP_KEY"], "app");
+		assert_eq!(env["SNOUTDATA_SERVICE_ROLE_KEY"], "server");
+		assert_eq!(env["SNOUTDATA_SERVER_KEY"], "server");
+		assert_eq!(env.len(), 4);
+		for name in env.keys() {
+			assert!(PLATFORM_ENV.contains(&name.as_str()), "{name} is reserved");
+		}
+		assert!(PLATFORM_ENV.contains(&"SNOUTDATA_URL"));
 	}
 
 	#[test]

@@ -33,9 +33,9 @@ use crate::gateway::DOMAIN;
 use crate::keys;
 use crate::s3;
 
-/// The roles the database image makes for the servers, which they log in as.
+/// The roles the database image makes for the servers, which they log in as. The data API's is in
+/// `Layout`, since its name is one of the layout's.
 const AUTH_ROLE: &str = "snout_auth_admin";
-const REST_ROLE: &str = "authenticator";
 const STORAGE_ROLE: &str = "snout_storage_admin";
 const REALTIME_ROLE: &str = "snout_realtime_admin";
 const PUSH_ROLE: &str = "snout_push_admin";
@@ -62,6 +62,64 @@ const PUSH_SQL: (&str, &str) = ("push role and schema", include_str!("../sql/60-
 
 const WAIT: Duration = Duration::from_secs(180);
 
+/// The names a database's layout gives the three things `.env` names for the data API and auth
+/// (the own layout): the data API's login role, the auth server's schema, and the schema
+/// GraphQL's endpoint is in. A new stack is made in the new layout; one made before it keeps the
+/// old until its database is renamed (README.md, "Layout").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Layout<S> {
+	pub rest_user: S,
+	pub auth_namespace: S,
+	pub graphql_schema: S,
+}
+
+pub const OLD_LAYOUT: Layout<&str> = Layout {
+	rest_user: "authenticator",
+	auth_namespace: "auth",
+	graphql_schema: "graphql_public",
+};
+
+pub const NEW_LAYOUT: Layout<&str> = Layout {
+	rest_user: "snout_gate",
+	auth_namespace: "snout_identity",
+	graphql_schema: "snout_graph",
+};
+
+/// Whether a database is in the new layout: the schema says, as it does for every server.
+const NEW_LAYOUT_SQL: &str = "select to_regnamespace('snout_identity') is not null";
+
+/// What `.env` says that the database's layout does not, as one sentence, or `None` when they
+/// agree. Asked before anything starts, so a mismatch is a sentence at `up` and never a data API or
+/// auth server that cannot find its names.
+pub fn layout_mismatch(new: bool, configured: &Layout<String>) -> Option<String> {
+	let expected = if new { &NEW_LAYOUT } else { &OLD_LAYOUT };
+	let mut wrong = Vec::new();
+	for (name, have, want) in [
+		("REST_DB_USER", &configured.rest_user, expected.rest_user),
+		(
+			"AUTH_DB_NAMESPACE",
+			&configured.auth_namespace,
+			expected.auth_namespace,
+		),
+		(
+			"GRAPHQL_SCHEMA",
+			&configured.graphql_schema,
+			expected.graphql_schema,
+		),
+	] {
+		if have != want {
+			wrong.push(format!("{name}={want} (it is {have})"));
+		}
+	}
+	(!wrong.is_empty()).then(|| {
+		format!(
+			"the database is in the {} layout, and .env does not say so: set {} (README.md, \"Layout\")",
+			if new { "new" } else { "old" },
+			wrong.join(", ")
+		)
+	})
+}
+
 struct Settings {
 	reference: String,
 	jwt_secret: String,
@@ -69,6 +127,8 @@ struct Settings {
 	service_key: String,
 	auth_password: String,
 	rest_password: String,
+	/// What `.env` names for the layout, unset meaning the old one's.
+	layout: Layout<String>,
 	/// Unset in a stack made before push, which then runs without it.
 	push_password: Option<String>,
 	storage_admin_key: String,
@@ -102,6 +162,13 @@ fn settings() -> Result<Settings, String> {
 		service_key: env::required("SERVICE_ROLE_KEY")?,
 		auth_password: env::required("AUTH_DB_PASSWORD")?,
 		rest_password: env::required("REST_DB_PASSWORD")?,
+		layout: Layout {
+			rest_user: env::optional("REST_DB_USER").unwrap_or_else(|| OLD_LAYOUT.rest_user.into()),
+			auth_namespace: env::optional("AUTH_DB_NAMESPACE")
+				.unwrap_or_else(|| OLD_LAYOUT.auth_namespace.into()),
+			graphql_schema: env::optional("GRAPHQL_SCHEMA")
+				.unwrap_or_else(|| OLD_LAYOUT.graphql_schema.into()),
+		},
 		push_password: env::optional("PUSH_DB_PASSWORD"),
 		storage_admin_key: env::required("STORAGE_ADMIN_API_KEY")?,
 		realtime_api_secret: env::required("REALTIME_API_JWT_SECRET")?,
@@ -142,10 +209,20 @@ pub async fn run() -> Result<(), String> {
 	let realtime_password = keys::derived_password(&s.jwt_secret, "realtime", &s.reference);
 
 	let project = connect(&s.reference).await?;
+	let new: bool = project
+		.query_one(NEW_LAYOUT_SQL, &[])
+		.await
+		.map_err(|e| format!("reading the database's layout: {e}"))?
+		.get(0);
+	if let Some(sentence) = layout_mismatch(new, &s.layout) {
+		return Err(sentence);
+	}
+	let layout = if new { &NEW_LAYOUT } else { &OLD_LAYOUT };
+	tracing::info!(layout = if new { "new" } else { "old" }, "database layout");
 	let cluster = connect("postgres").await?;
 	for (role, password) in [
 		(AUTH_ROLE, s.auth_password.as_str()),
-		(REST_ROLE, s.rest_password.as_str()),
+		(layout.rest_user, s.rest_password.as_str()),
 		(STORAGE_ROLE, storage_password.as_str()),
 		(REALTIME_ROLE, realtime_password.as_str()),
 	] {
@@ -174,8 +251,13 @@ pub async fn run() -> Result<(), String> {
 	// migration of the customer's that puts a policy on either finds the tables there.
 	wait("realtime to prepare the project", || async {
 		let _ = http.call("GET", &format!("{}/api/tenants/{}/health", s.realtime_url, s.reference), &realtime_headers(&s), None).await;
+		let prepared = if new {
+			"select to_regclass('snout_live.signals') is not null and to_regclass('snout_live.listeners') is not null"
+		} else {
+			"select to_regclass('realtime.messages') is not null and to_regclass('realtime.subscription') is not null"
+		};
 		let row = project
-			.query_one("select to_regclass('realtime.messages') is not null and to_regclass('realtime.subscription') is not null", &[])
+			.query_one(prepared, &[])
 			.await
 			.map_err(|e| e.to_string())?;
 		Ok(row.get::<_, bool>(0))
@@ -461,5 +543,62 @@ impl Http {
 			.map_err(|e| format!("unreachable: {url}: {e}"))?
 			.to_bytes();
 		Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{Layout, NEW_LAYOUT, OLD_LAYOUT, layout_mismatch};
+
+	fn owned(l: &Layout<&str>) -> Layout<String> {
+		Layout {
+			rest_user: l.rest_user.into(),
+			auth_namespace: l.auth_namespace.into(),
+			graphql_schema: l.graphql_schema.into(),
+		}
+	}
+
+	/// `sql/rename.sql` is the pod image's own rename, copied byte for byte so a self-hosted stack
+	/// carries it. Compared where both are present (the monorepo, outside the dev container);
+	/// skipped where this crate stands alone.
+	#[test]
+	fn the_rename_is_the_pod_s_own() {
+		let ours = include_str!("../sql/rename.sql");
+		let theirs = concat!(
+			env!("CARGO_MANIFEST_DIR"),
+			"/../../snoutpod/src/layout/rename.sql"
+		);
+		if let Ok(theirs) = std::fs::read_to_string(theirs) {
+			assert!(
+				theirs == ours,
+				"sql/rename.sql differs from the pod's; copy it again"
+			);
+		}
+		assert!(ours.contains("own-layout: this database already has a name of the new layout"));
+	}
+
+	#[test]
+	fn env_and_database_must_agree_on_the_layout() {
+		assert_eq!(layout_mismatch(false, &owned(&OLD_LAYOUT)), None);
+		assert_eq!(layout_mismatch(true, &owned(&NEW_LAYOUT)), None);
+		// A stack made before the new layout, its .env untouched, on a database renamed in place.
+		let said = layout_mismatch(true, &owned(&OLD_LAYOUT)).unwrap_or_default();
+		assert!(said.contains("the new layout"), "{said}");
+		assert!(
+			said.contains("REST_DB_USER=snout_gate (it is authenticator)"),
+			"{said}"
+		);
+		assert!(said.contains("AUTH_DB_NAMESPACE=snout_identity"), "{said}");
+		assert!(said.contains("GRAPHQL_SCHEMA=snout_graph"), "{said}");
+		// One value forgotten.
+		let mut half = owned(&NEW_LAYOUT);
+		half.graphql_schema = "graphql_public".into();
+		let said = layout_mismatch(true, &half).unwrap_or_default();
+		assert!(
+			said.contains("GRAPHQL_SCHEMA=snout_graph (it is graphql_public)"),
+			"{said}"
+		);
+		assert!(!said.contains("REST_DB_USER"), "{said}");
+		assert!(layout_mismatch(false, &owned(&NEW_LAYOUT)).is_some());
 	}
 }

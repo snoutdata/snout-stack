@@ -14,6 +14,9 @@ mod functions;
 mod gateway;
 mod init;
 mod keys;
+// The old and new names (the own layout); a copy of snout-common's, of which this binary uses only a part.
+#[allow(dead_code)]
+mod layout;
 mod routes;
 mod s3;
 mod setup;

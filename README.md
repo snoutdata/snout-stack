@@ -31,7 +31,7 @@ You need Docker with the Compose plugin (2.24 or later).
 
 ```sh
 git clone https://github.com/snoutdata/snout-stack && cd snout-stack
-docker run --rm ghcr.io/snoutdata/snout-stack:0.1.4 init > .env
+docker run --rm ghcr.io/snoutdata/snout-stack:0.1.7 init > .env
 docker compose up -d --wait
 ```
 
@@ -43,21 +43,24 @@ your clients were given.
 The API is at `http://localhost:8000`. The two keys are in `.env`:
 
 - `ANON_KEY` ships in your application. What it can reach is what your row-level security
-  policies grant the `anon` and `authenticated` roles.
+  policies grant the `snout_app` and `snout_member` roles (`anon` and `authenticated` in a stack
+  made before the current layout; see Layout).
 - `SERVICE_ROLE_KEY` bypasses row-level security. Keep it on your servers.
 
 ```js
 const client = createClient('http://localhost:8000', process.env.ANON_KEY)
 ```
 
-| Path | Service |
-|---|---|
-| `/rest/v1/` | the data API |
-| `/graphql/v1` | GraphQL |
-| `/auth/v1/` | auth |
-| `/storage/v1/` | storage |
-| `/realtime/v1/` | Realtime (WebSocket, and `api/broadcast` over HTTP) |
-| `/functions/v1/<name>` | your functions |
+| Path | Also served at | Service |
+|---|---|---|
+| `/v1/data/` | `/rest/v1/` | the data API |
+| `/v1/graph` | `/graphql/v1` | GraphQL |
+| `/v1/identity/` | `/auth/v1/` | auth |
+| `/v1/files/` | `/storage/v1/` | storage |
+| `/v1/live/` (and `/v1/live/signal` over HTTP) | `/realtime/v1/` (and `api/broadcast`) | Realtime |
+| `/v1/fn/<name>` | `/functions/v1/<name>` | your functions |
+
+The key goes in the `Snout-Key` header (or `apikey`, which is also accepted).
 
 The database itself is on `127.0.0.1:5432`: database `<SNOUT_REF>`, user `<SNOUT_REF>_owner`,
 password `POSTGRES_OWNER_PASSWORD`. The owner can do everything in its database, including
@@ -132,7 +135,8 @@ Everything is in `.env`. `init` writes the secrets; the rest have defaults and c
 | `GOOGLE_ENABLED`, `GOOGLE_CLIENT_ID`, `GOOGLE_SECRET` | off | Sign in with Google; the redirect URI is `<API_EXTERNAL_URL>/auth/v1/callback` |
 | `GITHUB_ENABLED`, `GITHUB_CLIENT_ID`, `GITHUB_SECRET` | off | The same for GitHub |
 | `SAML_ENABLED`, `SAML_PRIVATE_KEY` | off | SAML single sign-on (snout-auth's README) |
-| `REST_SCHEMAS` | `public, graphql_public` | Schemas the data API serves |
+| `REST_SCHEMAS` | `public, graphql_public` (`init` writes `public,snout_graph`) | Schemas the data API serves |
+| `REST_DB_USER`, `REST_ANON_ROLE`, `GRAPHQL_SCHEMA`, `AUTH_DB_NAMESPACE`, `AUTH_JWT_AUD`, `AUTH_JWT_DEFAULT_GROUP_NAME`, `AUTH_JWT_ADMIN_ROLES` | the old layout's names (`init` writes the new layout's) | The database's layout, with `REST_SCHEMAS`: change them only with the database (Layout, below) |
 | `REST_DB_POOL` | `10` | The data API's connections |
 | `FUNCTIONS_MEMORY_MB`, `FUNCTIONS_WALL_MS`, `FUNCTIONS_CPU_MS` | `256`, `60000`, `5000` | Each function's limits |
 | `FUNCTIONS_NO_VERIFY_JWT` | none | Functions callable without a key, comma separated |
@@ -177,6 +181,44 @@ Each server's own page lists the rest of its settings.
 - **Exposure.** Only the gateway's port (and Postgres's, on this machine) is published. The
   servers' admin ports and the metadata database are reachable only inside the stack.
 
+## Layout
+
+A stack made by `init` from this release has our own names in its database: the roles
+`snout_app`, `snout_member` and `snout_server` and the data API's login `snout_gate`; the schemas
+`snout_identity` (auth, whose tables include `people` and `provider_links`), `snout_files`
+(storage: `spaces` and `files`), `snout_live` (Realtime: `signals`, `listeners`, `signal()`),
+`snout_graph` and `snout_ext`; and the policy helpers `snout_identity.user_id()`, `claims()`,
+`access()` and `user_email()`. The roles' old names, `anon`, `authenticated` and `service_role`,
+are kept as roles that inherit the new ones, so a token or a grant that names them still works;
+write new grants and policies to the new names. `.env` names the layout in eight values
+(Configuration, above), which `init` writes.
+
+A stack made before keeps the old layout (`auth`, `storage`, `realtime`, `graphql_public`,
+`extensions`, and `anon`, `authenticated`, `service_role`, `authenticator`) and keeps working: its
+`.env` has none of the eight values, and the compose file's defaults are the old names. Upgrading
+the images does not change the layout of a database that already exists. To move one to the new
+layout, in the stack's folder:
+
+1. Back up the database (`docker compose exec db pg_dump -U snoutpod_admin -Fc <SNOUT_REF> >
+   project.dump`) and `.env`.
+2. Stop everything but the database: `docker compose stop gateway auth rest storage realtime push
+   functions`.
+3. Rename it in place, in one transaction that changes nothing if anything is out of place:
+   `docker compose exec -T db psql -U snoutpod_admin -d <SNOUT_REF> -1 -v ON_ERROR_STOP=1 <
+   sql/rename.sql`. It renames the roles, schemas, tables and helpers above, rewrites your own
+   functions, policies, views and cron jobs that name them, and keeps the old role names as
+   inheriting roles. If anything still names an old one afterwards (a materialized view, say), it
+   says what and changes nothing.
+4. Add the eight values to `.env`: `REST_DB_USER=snout_gate`, `REST_ANON_ROLE=snout_app`,
+   `REST_SCHEMAS=public,snout_graph`, `GRAPHQL_SCHEMA=snout_graph`,
+   `AUTH_DB_NAMESPACE=snout_identity`, `AUTH_JWT_AUD=snout_member`,
+   `AUTH_JWT_DEFAULT_GROUP_NAME=snout_member`, `AUTH_JWT_ADMIN_ROLES=snout_server`.
+5. `docker compose up -d --wait`.
+
+`setup` compares `.env` with the database on every `up` and stops with a sentence naming the values
+to set when they disagree, so a half-done move never starts the data API or auth against names the
+database does not have. Your keys, sessions and clients are unchanged.
+
 ## Moving a project here
 
 The `auth`, `storage` and `realtime` schemas are the ones the client libraries' servers have always
@@ -198,6 +240,41 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `ANON_KEY` a
 
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
+
+### 0.1.7, 2026-10-15: push may act as a key's role
+
+One image moves: `snout-stack` 0.1.7.
+
+- **Push accepts a key with the old role names.** `setup` grants push's database role the alias
+  roles (`anon`, `authenticated`, `service_role`) beside the new ones, so a key or token whose
+  role claim still names one of them is run as that role instead of refused. 0.1.6 granted only
+  the new roles in a new-layout database.
+- **`sql/rename.sql` ends with the same grant** for every role that switches into a new role, so a
+  stack moved to the new layout keeps accepting the old claims.
+
+To take it, follow Upgrades above: `setup` runs on every `up` and grants it then.
+
+### 0.1.6, 2026-10-15: our own names
+
+Six images move: `snout-stack` 0.1.6, snout-auth 0.1.11, snout-storage 0.2.5, snout-realtime
+0.1.11, snout-push 0.1.4 and snout-functions 0.2.6. (0.1.5 was never published.)
+
+- **A new stack starts in the new layout** (Layout, above): `init` writes the eight layout values,
+  and the database is made with the new role, schema, table and helper names, the old role names
+  kept as roles that inherit the new ones.
+- **The new paths beside the old.** The gateway serves `/v1/data`, `/v1/graph`, `/v1/identity`,
+  `/v1/files`, `/v1/live` and `/v1/fn` as well as the old prefixes, and takes the key as
+  `Snout-Key` or `apikey`. Auth, storage and Realtime answer the new route, field and claim names
+  beside the old ones, and a session's token carries both claim sets.
+- **Each server reads the database it finds.** Auth, storage, Realtime and push speak to a database
+  in whichever layout it has, so an existing stack keeps working on the new images with its old
+  layout until you move it with `sql/rename.sql`.
+- **The servers' own migrations are written in the new names**, and a database in the old layout
+  is given them in its own names. A database they migrated before is neither refused nor
+  migrated again.
+
+To take it, follow Upgrades above. Nothing about an existing stack's database changes until you
+follow the steps under Layout.
 
 ### 2026-10-14: image resizing works
 

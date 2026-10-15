@@ -32,6 +32,8 @@ pub const DOMAIN: &str = "stack.internal";
 
 struct Gateway {
 	reference: String,
+	/// The schema GraphQL's endpoint is in: `GRAPHQL_SCHEMA`, as the database has it.
+	graphql_schema: &'static str,
 	keys: Keys,
 	scheme: String,
 	functions_door: Option<String>,
@@ -88,6 +90,7 @@ pub async fn run() -> Result<(), String> {
 			&env::required("SERVICE_ROLE_KEY")?,
 		),
 		reference,
+		graphql_schema: routes::graphql_schema(env::optional("GRAPHQL_SCHEMA").as_deref())?,
 		scheme: scheme.to_owned(),
 		functions_door: env::optional("FUNCTIONS_DOOR_SECRET"),
 		open_functions: env::list("FUNCTIONS_NO_VERIFY_JWT"),
@@ -232,8 +235,9 @@ impl Gateway {
 		let Some(matched) = routes::service_for_path(&path_and_query) else {
 			return refusal(&routes::NOT_FOUND, &cors);
 		};
-		let presented =
-			header_text(&request, "apikey").or_else(|| routes::query_api_key(&path_and_query));
+		let presented = header_text(&request, "apikey")
+			.or_else(|| header_text(&request, routes::KEY_HEADER))
+			.or_else(|| routes::query_api_key(&path_and_query));
 		let role = self.keys.classify(presented.as_deref());
 		if let Err(refused) = routes::authorise(
 			request.method().as_str(),
@@ -263,6 +267,7 @@ impl Gateway {
 			&matched,
 			&Prepare {
 				reference: &self.reference,
+				graphql_schema: self.graphql_schema,
 				domain: DOMAIN,
 				source: &source,
 				scheme: &self.scheme,

@@ -1,11 +1,18 @@
 # The whole stack on one machine: a Postgres project with auth, the data API, GraphQL, storage,
 # Realtime and functions, behind one gateway.
 #
-#   docker run --rm ghcr.io/snoutdata/snout-stack:0.1.4 init > .env
+#   docker run --rm ghcr.io/snoutdata/snout-stack:0.1.7 init > .env
 #   docker compose up -d
 #
 # Every secret comes from .env, which `snout-stack init` writes; there is no default key in this
 # file, and a missing value stops `docker compose up` with a sentence. README.md is the guide.
+#
+# The database's layout (its old or new names) is named in .env too: REST_DB_USER,
+# REST_ANON_ROLE, REST_SCHEMAS, GRAPHQL_SCHEMA, AUTH_DB_NAMESPACE and AUTH_JWT_AUD,
+# AUTH_JWT_DEFAULT_GROUP_NAME, AUTH_JWT_ADMIN_ROLES. `init` writes the new layout's names; a stack
+# made before them has none, and the defaults below are the old layout's, so it runs as it did
+# until its database is renamed (README.md, "Layout"). `setup` refuses to start a stack whose .env
+# and database disagree.
 #
 # The layout is a hosted project's. `db` is the project's database; auth, the data API and setup
 # share its network namespace, so they reach Postgres on 127.0.0.1, as sidecars do in a pod. The
@@ -50,7 +57,7 @@ services:
   # ---- One-shot: role passwords, Realtime's grants, the storage bucket, and the project
   # registered with storage and Realtime. Runs on every `up`; every step is idempotent.
   setup:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.4
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.7
     command: setup
     network_mode: service:db
     user: "65532:65532"
@@ -64,6 +71,10 @@ services:
       REST_DB_PASSWORD: ${REST_DB_PASSWORD:?run snout-stack init first}
       # Push's role is made only when this is set; a stack made before push has none.
       PUSH_DB_PASSWORD: ${PUSH_DB_PASSWORD:-}
+      # The layout .env names, checked against the database's before anything starts.
+      REST_DB_USER: ${REST_DB_USER:-authenticator}
+      AUTH_DB_NAMESPACE: ${AUTH_DB_NAMESPACE:-auth}
+      GRAPHQL_SCHEMA: ${GRAPHQL_SCHEMA:-graphql_public}
       STORAGE_ADMIN_API_KEY: ${STORAGE_ADMIN_API_KEY:?run snout-stack init first}
       REALTIME_API_JWT_SECRET: ${REALTIME_API_JWT_SECRET:?run snout-stack init first}
       STORAGE_FILE_SIZE_LIMIT: ${STORAGE_FILE_SIZE_LIMIT:-52428800}
@@ -84,21 +95,23 @@ services:
         condition: service_started
         required: false
 
-  # ---- Auth: sign-up, sign-in, sessions, MFA, OAuth and SAML, users kept in the `auth` schema.
+  # ---- Auth: sign-up, sign-in, sessions, MFA, OAuth and SAML, people kept in the
+  # `snout_identity` schema (`auth` in the old layout).
   auth:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-auth:0.1.9
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-auth:0.1.11
     network_mode: service:db
     restart: unless-stopped
     environment:
       PORT: "9999"
       AUTH_API_HOST: 0.0.0.0
       AUTH_DB_DATABASE_URL: postgres://snout_auth_admin:${AUTH_DB_PASSWORD}@127.0.0.1:5432/${SNOUT_REF}
+      AUTH_DB_NAMESPACE: ${AUTH_DB_NAMESPACE:-auth}
       AUTH_JWT_SECRET: ${JWT_SECRET}
       AUTH_JWT_EXP: ${AUTH_JWT_EXP:-3600}
       AUTH_JWT_ISSUER: ${API_EXTERNAL_URL:?run snout-stack init first}/auth/v1
-      AUTH_JWT_AUD: authenticated
-      AUTH_JWT_DEFAULT_GROUP_NAME: authenticated
-      AUTH_JWT_ADMIN_ROLES: service_role
+      AUTH_JWT_AUD: ${AUTH_JWT_AUD:-authenticated}
+      AUTH_JWT_DEFAULT_GROUP_NAME: ${AUTH_JWT_DEFAULT_GROUP_NAME:-authenticated}
+      AUTH_JWT_ADMIN_ROLES: ${AUTH_JWT_ADMIN_ROLES:-service_role}
       AUTH_SITE_URL: ${SITE_URL:?run snout-stack init first}
       AUTH_API_EXTERNAL_URL: ${API_EXTERNAL_URL}
       AUTH_URI_ALLOW_LIST: ${AUTH_URI_ALLOW_LIST:-}
@@ -139,11 +152,11 @@ services:
     network_mode: service:db
     restart: unless-stopped
     environment:
-      PGRST_DB_URI: postgres://authenticator:${REST_DB_PASSWORD}@127.0.0.1:5432/${SNOUT_REF}
+      PGRST_DB_URI: postgres://${REST_DB_USER:-authenticator}:${REST_DB_PASSWORD}@127.0.0.1:5432/${SNOUT_REF}
       PGRST_JWT_SECRET: ${JWT_SECRET}
       PGRST_JWT_ROLE_CLAIM_KEY: .role
       PGRST_DB_SCHEMAS: ${REST_SCHEMAS:-public, graphql_public}
-      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_ANON_ROLE: ${REST_ANON_ROLE:-anon}
       PGRST_DB_POOL: ${REST_DB_POOL:-10}
       PGRST_DB_CHANNEL_ENABLED: "true"
       PGRST_DB_CHANNEL: pgrst
@@ -175,7 +188,7 @@ services:
 
   # ---- Storage: buckets and files, every operation decided by the project's own policies.
   storage:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-storage:0.2.3
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-storage:0.2.5
     restart: unless-stopped
     environment:
       DATABASE_MULTITENANT_URL: postgres://postgres:${METADATA_DB_PASSWORD}@metadata:5432/storage
@@ -203,7 +216,7 @@ services:
 
   # ---- Realtime: broadcast, presence and database changes over WebSockets.
   realtime:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.9
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-realtime:0.1.11
     restart: unless-stopped
     environment:
       DB_HOST: metadata
@@ -222,7 +235,7 @@ services:
   # ---- One-shot: functions/<name>/index.ts laid out for the runtime, imports bundled.
   # Again after a change: docker compose run --rm functions-deploy
   functions-deploy:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.4
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.7
     command: functions
     restart: "no"
     environment:
@@ -243,7 +256,7 @@ services:
   # of its own with the gateway, so a function reaches the internet and this stack's API, and not
   # the databases or the servers' admin ports.
   functions:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-functions:0.2.5
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-functions:0.2.6
     restart: unless-stopped
     # Every function shares this container's memory; past 85% of it the runtime makes room by
     # stopping idle workers rather than letting the kernel stop the container.
@@ -260,7 +273,7 @@ services:
 
   # ---- The front door: one port, every service behind it, the keys checked here.
   gateway:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.4
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.7
     command: gateway
     user: "65532:65532"
     restart: unless-stopped
@@ -270,6 +283,8 @@ services:
       ANON_KEY: ${ANON_KEY}
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
       FUNCTIONS_DOOR_SECRET: ${FUNCTIONS_DOOR_SECRET}
+      # The schema GraphQL's endpoint is in, sent as its content profile.
+      GRAPHQL_SCHEMA: ${GRAPHQL_SCHEMA:-graphql_public}
       # Functions callable with no key (a webhook's receiver), comma separated.
       FUNCTIONS_NO_VERIFY_JWT: ${FUNCTIONS_NO_VERIFY_JWT:-}
       # Behind a TLS proxy, the header it writes the caller's address into (e.g. x-real-ip).
@@ -311,7 +326,7 @@ services:
   # Push notifications to iPhone, Android and the web, at /push/v1. Its devices, queue, log and
   # provider keys are tables in the project's database, in the `push` schema.
   push:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-push:0.1.2
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-push:0.1.4
     profiles: [push]
     network_mode: service:db
     restart: unless-stopped
