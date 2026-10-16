@@ -31,7 +31,7 @@ You need Docker with the Compose plugin (2.24 or later).
 
 ```sh
 git clone https://github.com/snoutdata/snout-stack && cd snout-stack
-docker run --rm ghcr.io/snoutdata/snout-stack:0.1.9 init > .env
+docker run --rm ghcr.io/snoutdata/snout-stack:0.1.10 init > .env
 docker compose up -d --wait
 ```
 
@@ -240,6 +240,23 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `ANON_KEY` a
 
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
+
+### 0.1.10, 2026-10-16: a function's log lines carry its project
+
+Two images move: `snout-stack` 0.1.10 and snout-functions 0.2.7. Nothing else in the stack changed
+since 0.1.9; `snout-stack` moves only so the release has its own tag.
+
+- **snout-functions 0.2.7: each project's process writes its stderr to a pipe of its own.** The
+  runtime reads it and writes each line on as `[<ref>] <line>`, where `<ref>` is your `SNOUT_REF`,
+  taken from the runtime's own record of which project it gave that process and never from the
+  line. A function that writes to `Deno.stderr` directly, past `console`, can no longer write a line
+  that claims to be another project's. A process still waiting for a project tags its lines
+  `[spare]`.
+- **What changes for you:** lines in `docker compose logs functions` that come from a function now
+  start with `[<ref>] `. The JSON `console` lines of 0.2.5 follow the tag unchanged. If something of
+  yours reads those lines, take the tag off first.
+
+To take it, follow Upgrades above. Your `.env`, volumes and functions stay as they are.
 
 ### 0.1.9, 2026-10-16: the server key reaches the superuser's tables
 
