@@ -31,7 +31,7 @@ You need Docker with the Compose plugin (2.24 or later).
 
 ```sh
 git clone https://github.com/snoutdata/snout-stack && cd snout-stack
-docker run --rm ghcr.io/snoutdata/snout-stack:0.1.8 init > .env
+docker run --rm ghcr.io/snoutdata/snout-stack:0.1.9 init > .env
 docker compose up -d --wait
 ```
 
@@ -240,6 +240,22 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `ANON_KEY` a
 
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
+
+### 0.1.9, 2026-10-16: the server key reaches the superuser's tables
+
+One image moves: `snout-stack` 0.1.9.
+
+- **A table made as `snoutpod_admin` is readable with the server key.** The database gives the
+  owner's new tables to the API roles, and nobody else's, so a table made with
+  `docker compose exec db psql -U snoutpod_admin` answered "permission denied" even to
+  `SERVICE_ROLE_KEY`. `setup` now gives the server role every privilege on what the superuser
+  makes in `public`: by default from now on, and on the tables, views and sequences it has already
+  made.
+- **The app key is not opened to them.** A table the superuser makes reaches `ANON_KEY` and a
+  signed-in user only through a grant you write, as before. A table the owner makes is unchanged.
+
+To take it, follow Upgrades above. `setup` runs on every `docker compose up`, so an existing stack
+gets the grants on its next start.
 
 ### 0.1.8, 2026-10-16: keys signed with the new role names
 

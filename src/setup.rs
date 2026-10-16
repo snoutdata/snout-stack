@@ -6,6 +6,8 @@
 //!    JWT secret, as the hosted service derives them.
 //! 2. The grants the hosted agent makes before registering a project with Realtime (`sql/`,
 //!    the same bytes). The publication is the database image's own, made when it is created.
+//!    And one of the stack's own: the server role reaches what the superuser makes in `public`
+//!    (`sql/70-admin-default-privileges.sql`).
 //!    With `PUSH_DB_PASSWORD` set, push's role and schema too (`sql/60-push.sql`, the bytes the
 //!    hosted service runs when push is switched on), and the role's password.
 //! 3. Storage's bucket is made in the bundled object store (`S3_CREATE_BUCKET=false` with your own
@@ -56,6 +58,13 @@ const PROJECT_SQL: &[(&str, &str)] = &[
 		include_str!("../sql/50-realtime-owner-read.sql"),
 	),
 ];
+
+/// The stack's own: the server role's grants on what the database's superuser makes in `public`,
+/// which a hosted project never needs because nobody reaches it as that role.
+const ADMIN_SQL: (&str, &str) = (
+	"superuser default privileges",
+	include_str!("../sql/70-admin-default-privileges.sql"),
+);
 
 /// Push's role and schema; the server migrates the schema itself as that role.
 const PUSH_SQL: (&str, &str) = ("push role and schema", include_str!("../sql/60-push.sql"));
@@ -232,6 +241,7 @@ pub async fn run() -> Result<(), String> {
 	for step in PROJECT_SQL {
 		run_sql(&project, *step).await?;
 	}
+	run_sql(&project, ADMIN_SQL).await?;
 	tracing::info!("project sql applied");
 	if let Some(password) = &s.push_password {
 		run_sql(&project, PUSH_SQL).await?;
