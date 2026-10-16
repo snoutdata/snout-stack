@@ -7,6 +7,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 use crate::keys;
+use crate::layout::Access;
 use crate::setup::NEW_LAYOUT;
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -61,8 +62,11 @@ pub struct Values {
 pub fn fresh() -> Values {
 	let reference = keys::new_ref();
 	let jwt_secret = keys::random(48);
-	let anon = keys::api_key(&jwt_secret, "anon");
-	let service = keys::api_key(&jwt_secret, "service_role");
+	// Signed with the new layout's role names, which a stack made here has. A key signed with the
+	// old ones (`anon`, `service_role`; every stack before 0.1.8) keeps working while the old names
+	// are alias roles of the new.
+	let anon = keys::api_key(&jwt_secret, Access::App.new_name());
+	let service = keys::api_key(&jwt_secret, Access::Server.new_name());
 	Values {
 		pairs: vec![
 			(
@@ -276,7 +280,14 @@ mod tests {
 				.unwrap()
 		};
 		assert!(keys::is_ref(&get("SNOUT_REF")));
-		assert_eq!(get("ANON_KEY"), keys::api_key(&get("JWT_SECRET"), "anon"));
+		assert_eq!(
+			get("ANON_KEY"),
+			keys::api_key(&get("JWT_SECRET"), "snout_app")
+		);
+		assert_eq!(
+			get("SERVICE_ROLE_KEY"),
+			keys::api_key(&get("JWT_SECRET"), "snout_server")
+		);
 		assert_eq!(get("REALTIME_DB_ENC_KEY").len(), 16);
 		assert!(get("JWT_SECRET").len() >= 32);
 	}

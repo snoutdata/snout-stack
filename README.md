@@ -31,7 +31,7 @@ You need Docker with the Compose plugin (2.24 or later).
 
 ```sh
 git clone https://github.com/snoutdata/snout-stack && cd snout-stack
-docker run --rm ghcr.io/snoutdata/snout-stack:0.1.7 init > .env
+docker run --rm ghcr.io/snoutdata/snout-stack:0.1.8 init > .env
 docker compose up -d --wait
 ```
 
@@ -240,6 +240,20 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `ANON_KEY` a
 
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
+
+### 0.1.8, 2026-10-16: keys signed with the new role names
+
+One image moves: `snout-stack` 0.1.8.
+
+- **`init` signs the two keys with the new layout's role names.** `ANON_KEY` carries the role
+  `snout_app` and `SERVICE_ROLE_KEY` the role `snout_server`, the roles a stack made by `init` has.
+  0.1.7 and before signed them `anon` and `service_role`.
+- **A key you already have keeps working.** The old names are kept as roles that inherit the new
+  ones (Layout, above), so a key signed `anon` or `service_role` is run as before. Nothing in an
+  existing `.env` changes, and no client needs a new key.
+
+To take it, follow Upgrades above. Only a stack made with `init` from this release has keys with
+the new names; an existing stack keeps the keys its `.env` holds.
 
 ### 0.1.7, 2026-10-15: push may act as a key's role
 

@@ -79,7 +79,7 @@ pub fn api_key(secret: &str, role: &str) -> String {
 pub fn admin_token(secret: &str, now_secs: u64) -> String {
 	sign(
 		secret,
-		&serde_json::json!({ "role": "service_role", "iat": now_secs.saturating_sub(30), "exp": now_secs + 300 }),
+		&serde_json::json!({ "role": "snout_server", "iat": now_secs.saturating_sub(30), "exp": now_secs + 300 }),
 	)
 }
 
@@ -127,12 +127,12 @@ mod tests {
 
 	#[test]
 	fn a_token_verifies_with_its_secret() {
-		let token = api_key("s3cret-s3cret-s3cret-s3cret-s3cret", "anon");
+		let token = api_key("s3cret-s3cret-s3cret-s3cret-s3cret", "snout_app");
 		let parts: Vec<&str> = token.split('.').collect();
 		assert_eq!(parts.len(), 3);
 		let claims: serde_json::Value =
 			serde_json::from_slice(&URL_SAFE_NO_PAD.decode(parts[1]).unwrap()).unwrap();
-		assert_eq!(claims["role"], "anon");
+		assert_eq!(claims["role"], "snout_app");
 		let mut mac = HmacSha256::new_from_slice(b"s3cret-s3cret-s3cret-s3cret-s3cret").unwrap();
 		mac.update(format!("{}.{}", parts[0], parts[1]).as_bytes());
 		assert_eq!(
