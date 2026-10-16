@@ -256,7 +256,7 @@ services:
   # of its own with the gateway, so a function reaches the internet and this stack's API, and not
   # the databases or the servers' admin ports.
   functions:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-functions:0.2.6
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-functions:0.2.7
     restart: unless-stopped
     # Every function shares this container's memory; past 85% of it the runtime makes room by
     # stopping idle workers rather than letting the kernel stop the container.
