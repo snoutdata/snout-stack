@@ -35,7 +35,8 @@ fi
 
 read -r -a extra <<<"${STACK_DEV_ARGS:-}"
 
-MSYS_NO_PATHCONV=1 exec "$engine" run --rm "${tty[@]}" "${extra[@]}" \
+# `${a[@]+"${a[@]}"}`: macOS's bash 3.2 calls an empty array unbound under `set -u`.
+MSYS_NO_PATHCONV=1 exec "$engine" run --rm ${tty[@]+"${tty[@]}"} ${extra[@]+"${extra[@]}"} \
 	-v "$src:/work" \
 	-v snout-stack-target:/cache/target \
 	-v snout-stack-registry:/usr/local/cargo/registry \
