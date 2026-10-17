@@ -241,6 +241,20 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `ANON_KEY` a
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
 
+### 0.1.11, 2026-10-17: a function stopped for its CPU limit says so
+
+Two images move: `snout-stack` 0.1.11 and snout-functions 0.2.8. Nothing else in the stack changed
+since 0.1.10; `snout-stack` moves only so the release has its own tag.
+
+- **snout-functions 0.2.8: a loop that never yields is named when it is stopped.** A request whose
+  function keeps the CPU past its limit is answered 500 "it reached its CPU limit". When the
+  function never gave the event loop a turn, the runtime stopped it without writing a line, so
+  `docker compose logs functions` said nothing about why. It now writes
+  `[<ref>] <ref>/<function>: stopped for CPU, past <ms> ms for each request it was given`, the same
+  line it already wrote when the CPU meter stopped a function.
+
+To take it, follow Upgrades above. Your `.env`, volumes and functions stay as they are.
+
 ### 0.1.10, 2026-10-16: a function's log lines carry its project
 
 Two images move: `snout-stack` 0.1.10 and snout-functions 0.2.7. Nothing else in the stack changed
