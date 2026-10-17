@@ -31,7 +31,7 @@ You need Docker with the Compose plugin (2.24 or later).
 
 ```sh
 git clone https://github.com/snoutdata/snout-stack && cd snout-stack
-docker run --rm ghcr.io/snoutdata/snout-stack:0.1.10 init > .env
+docker run --rm ghcr.io/snoutdata/snout-stack:0.1.11 init > .env
 docker compose up -d --wait
 ```
 
