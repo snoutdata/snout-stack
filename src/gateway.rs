@@ -50,6 +50,7 @@ struct Upstreams {
 	realtime: String,
 	functions: String,
 	push: String,
+	ai: String,
 }
 
 impl Upstreams {
@@ -61,6 +62,7 @@ impl Upstreams {
 			Service::Realtime => &self.realtime,
 			Service::Functions => &self.functions,
 			Service::Push => &self.push,
+			Service::Ai => &self.ai,
 		}
 	}
 }
@@ -105,6 +107,7 @@ pub async fn run() -> Result<(), String> {
 			functions: env::optional("FUNCTIONS_URL")
 				.unwrap_or_else(|| "http://functions:9000".into()),
 			push: env::optional("PUSH_URL").unwrap_or_else(|| "http://db:5200".into()),
+			ai: env::optional("AI_URL").unwrap_or_else(|| "http://db:5300".into()),
 		},
 		client: Client::builder(TokioExecutor::new()).build(connector),
 	});
@@ -239,13 +242,18 @@ impl Gateway {
 			.or_else(|| header_text(&request, routes::KEY_HEADER))
 			.or_else(|| routes::query_api_key(&path_and_query));
 		let role = self.keys.classify(presented.as_deref());
-		if let Err(refused) = routes::authorise(
-			request.method().as_str(),
-			&path_and_query,
-			&matched,
-			role,
-			&self.open_functions,
-		) {
+		let authorised = if matched.service == routes::Service::Ai {
+			routes::authorise_ai(role, header_text(&request, "authorization").as_deref())
+		} else {
+			routes::authorise(
+				request.method().as_str(),
+				&path_and_query,
+				&matched,
+				role,
+				&self.open_functions,
+			)
+		};
+		if let Err(refused) = authorised {
 			return refusal(&refused, &cors);
 		}
 

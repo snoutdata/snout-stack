@@ -1,7 +1,7 @@
 # The whole stack on one machine: a Postgres project with auth, the data API, GraphQL, storage,
-# Realtime and functions, behind one gateway.
+# Realtime, functions, push and an AI gateway, behind one gateway.
 #
-#   docker run --rm ghcr.io/snoutdata/snout-stack:0.1.11 init > .env
+#   docker run --rm ghcr.io/snoutdata/snout-stack:0.1.12 init > .env
 #   docker compose up -d
 #
 # Every secret comes from .env, which `snout-stack init` writes; there is no default key in this
@@ -57,7 +57,7 @@ services:
   # ---- One-shot: role passwords, Realtime's grants, the storage bucket, and the project
   # registered with storage and Realtime. Runs on every `up`; every step is idempotent.
   setup:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.11
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.12
     command: setup
     network_mode: service:db
     user: "65532:65532"
@@ -71,6 +71,8 @@ services:
       REST_DB_PASSWORD: ${REST_DB_PASSWORD:?run snout-stack init first}
       # Push's role is made only when this is set; a stack made before push has none.
       PUSH_DB_PASSWORD: ${PUSH_DB_PASSWORD:-}
+      # And the AI gateway's, the same way.
+      PSYCHE_DB_PASSWORD: ${PSYCHE_DB_PASSWORD:-}
       # The layout .env names, checked against the database's before anything starts.
       REST_DB_USER: ${REST_DB_USER:-authenticator}
       AUTH_DB_NAMESPACE: ${AUTH_DB_NAMESPACE:-auth}
@@ -235,7 +237,7 @@ services:
   # ---- One-shot: functions/<name>/index.ts laid out for the runtime, imports bundled.
   # Again after a change: docker compose run --rm functions-deploy
   functions-deploy:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.11
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.12
     command: functions
     restart: "no"
     environment:
@@ -273,7 +275,7 @@ services:
 
   # ---- The front door: one port, every service behind it, the keys checked here.
   gateway:
-    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.11
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-stack:0.1.12
     command: gateway
     user: "65532:65532"
     restart: unless-stopped
@@ -338,6 +340,26 @@ services:
       PUSH_SCHEDULING: "true"
       PUSH_POD_MEMORY_MB: ${PUSH_MEMORY_MB:-512}
       PUSH_LOG: ${LOG_LEVEL:-info}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+
+  # The AI gateway at /ai/v1: one OpenAI-compatible endpoint in front of the models you add, with
+  # your own provider keys, budgets and a request log in the project's database (the `psyche`
+  # schema, which it migrates at start). It takes a signed-in user's token once the project has a
+  # hard budget for itself and for every user; the app key alone calls nothing.
+  ai:
+    image: ${SNOUT_IMAGES:-ghcr.io/snoutdata}/snout-psyche:0.1.0
+    profiles: [ai]
+    network_mode: service:db
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://snout_psyche_admin:${PSYCHE_DB_PASSWORD:-}@127.0.0.1:5432/${SNOUT_REF}
+      PSYCHE_JWT_SECRET: ${JWT_SECRET}
+      PSYCHE_ADDR: 0.0.0.0:5300
+      # public: https on the internet only. private: this machine and its network too (Ollama).
+      PSYCHE_EGRESS: ${AI_EGRESS:-public}
+      PSYCHE_LOG: ${LOG_LEVEL:-info}
     depends_on:
       setup:
         condition: service_completed_successfully

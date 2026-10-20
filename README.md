@@ -1,7 +1,8 @@
 # snout-stack
 
 The whole SnoutData stack on one machine with Docker Compose: a Postgres project with auth, a REST
-and GraphQL data API, file storage, Realtime and functions, behind one gateway on one port. The
+and GraphQL data API, file storage, Realtime, functions, push and an AI gateway, behind one gateway
+on one port. The
 same servers SnoutData Cloud runs, in the same arrangement, holding one project.
 
 The JavaScript, Dart, Swift and Python client libraries your application may already use for this
@@ -19,6 +20,7 @@ kind of API work against it unchanged: point them at the gateway with the anon k
 | `objects` | an S3 API over a folder on this machine, where storage keeps files ([versitygw](https://github.com/versity/versitygw)) |
 | `images` | [snout-images](https://github.com/snoutdata/snout-images): image resizing for storage |
 | `push` | [snout-push](https://github.com/snoutdata/snout-push): push notifications to iPhone, Android and the web, at `/push/v1` |
+| `ai` | [snout-psyche](https://github.com/snoutdata/snout-psyche): an OpenAI-compatible AI gateway at `/ai/v1`, with your own provider keys |
 | `metadata`, `setup`, `functions-deploy` | the shared servers' own small database, and two one-shot steps |
 
 **Size (measured on a 2-core arm64 machine, 2026-10-14, default profiles):** about 170 MB of memory
@@ -31,7 +33,7 @@ You need Docker with the Compose plugin (2.24 or later).
 
 ```sh
 git clone https://github.com/snoutdata/snout-stack && cd snout-stack
-docker run --rm ghcr.io/snoutdata/snout-stack:0.1.11 init > .env
+docker run --rm ghcr.io/snoutdata/snout-stack:0.1.12 init > .env
 docker compose up -d --wait
 ```
 
@@ -111,6 +113,20 @@ A container is stateless: anything it writes inside itself is lost on a restart,
 matters in the database. Tested with rootless podman as the engine's user; on Docker the runner
 needs that user's runtime directory mounted as shown in `compose.yaml`.
 
+## AI gateway
+
+[Psyche](https://docs.snoutdata.com/stack/psyche), in the `ai` profile (on by default): one
+OpenAI-compatible endpoint at `<API_EXTERNAL_URL>/ai/v1` in front of the models you add, with your
+own provider keys. Its providers, models, keys, budgets and request log are tables in the project's
+database, in the `psyche` schema, which it migrates as it starts. It serves nothing until you add a
+provider and a model through its admin API with the server key (`/ai/v1/admin/providers/<name>`,
+`/ai/v1/admin/models/<name>`, `/ai/v1/admin/credentials/<name>`; the docs page has each body).
+
+Who may call it: a Psyche key (`psy_…`, made at `/ai/v1/admin/keys`), the server key, or a
+signed-in user's own token once the project has a hard budget for itself and one for every user.
+The anon key alone calls nothing. By default it sends only to https addresses on the internet; set
+`AI_EGRESS=private` for models on this machine or its network (an Ollama beside it).
+
 ## Configuration
 
 Everything is in `.env`. `init` writes the secrets; the rest have defaults and can be added.
@@ -122,7 +138,8 @@ Everything is in `.env`. `init` writes the secrets; the rest have defaults and c
 | `API_BIND`, `API_PORT` | `0.0.0.0`, `8000` | Where the gateway is published |
 | `DB_BIND`, `DB_PORT` | `127.0.0.1`, `5432` | Where Postgres is published |
 | `SNOUT_POD_IMAGE` | `ghcr.io/snoutdata/snoutpod-postgres:18` | The database image. A stack set up on Postgres 17 sets `ghcr.io/snoutdata/snoutpod-postgres:17` here and keeps it (see Upgrades) |
-| `COMPOSE_PROFILES` | `objects,images,push` | Remove `objects` to keep files in your own S3; remove `images` to run without image resizing; remove `push` to run without push notifications; add `containers` to run your own images (Containers, above) |
+| `COMPOSE_PROFILES` | `objects,images,push,ai` | Remove `objects` to keep files in your own S3; remove `images` to run without image resizing; remove `push` to run without push notifications; remove `ai` to run without the AI gateway; add `containers` to run your own images (Containers, above) |
+| `AI_EGRESS` | `public` | Where the AI gateway may send: `public` (https on the internet) or `private`, which also reaches this machine and its network |
 | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION` | the bundled store, `stack`, `us-east-1` | Your own S3 (AWS, R2, ...), with `S3_ACCESS_KEY`, `S3_SECRET_KEY` and `S3_CREATE_BUCKET=false`; make the bucket first |
 | `S3_FORCE_PATH_STYLE` | `true` | |
 | `STORAGE_FILE_SIZE_LIMIT` | `52428800` | The largest upload, in bytes |
@@ -240,6 +257,20 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `ANON_KEY` a
 
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
+
+### 0.1.12, 2026-10-19: the AI gateway
+
+Two images move: `snout-stack` 0.1.12, and snout-psyche 0.1.0 joins the stack.
+
+- **The AI gateway at `/ai/v1`** (AI gateway, above), in the `ai` profile, on by default in a
+  stack made from now on. The gateway passes it a Psyche key or a signed-in user's token as the
+  Bearer token with no project key beside it, since that is all an OpenAI client sends, and
+  Psyche checks the caller itself. `setup` makes its database role and schema when
+  `PSYCHE_DB_PASSWORD` is set.
+
+To take it in an existing stack, follow Upgrades above, then add a random `PSYCHE_DB_PASSWORD` to
+`.env` (`openssl rand -base64 18`) and `ai` to `COMPOSE_PROFILES`, and run `docker compose up -d`.
+Without them the stack runs as before.
 
 ### 0.1.11, 2026-10-17: a function stopped for its CPU limit says so
 

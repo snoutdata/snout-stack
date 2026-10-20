@@ -9,7 +9,8 @@
 //!    And one of the stack's own: the server role reaches what the superuser makes in `public`
 //!    (`sql/70-admin-default-privileges.sql`).
 //!    With `PUSH_DB_PASSWORD` set, push's role and schema too (`sql/60-push.sql`, the bytes the
-//!    hosted service runs when push is switched on), and the role's password.
+//!    hosted service runs when push is switched on), and the role's password. With
+//!    `PSYCHE_DB_PASSWORD` set, the AI gateway's the same way (`sql/80-psyche.sql`).
 //! 3. Storage's bucket is made in the bundled object store (`S3_CREATE_BUCKET=false` with your own
 //!    S3, where you make it).
 //! 4. The project is registered with storage and Realtime through their admin APIs, and each is
@@ -41,6 +42,7 @@ const AUTH_ROLE: &str = "snout_auth_admin";
 const STORAGE_ROLE: &str = "snout_storage_admin";
 const REALTIME_ROLE: &str = "snout_realtime_admin";
 const PUSH_ROLE: &str = "snout_push_admin";
+const PSYCHE_ROLE: &str = "snout_psyche_admin";
 const PUBLICATION: &str = "snoutdata_realtime";
 
 /// The hosted service's SQL for a project, byte for byte (its own tests hold the two together).
@@ -68,6 +70,12 @@ const ADMIN_SQL: (&str, &str) = (
 
 /// Push's role and schema; the server migrates the schema itself as that role.
 const PUSH_SQL: (&str, &str) = ("push role and schema", include_str!("../sql/60-push.sql"));
+
+/// The AI gateway's role and schema; Psyche migrates the schema itself as that role, at start.
+const PSYCHE_SQL: (&str, &str) = (
+	"AI gateway role and schema",
+	include_str!("../sql/80-psyche.sql"),
+);
 
 const WAIT: Duration = Duration::from_secs(180);
 
@@ -140,6 +148,8 @@ struct Settings {
 	layout: Layout<String>,
 	/// Unset in a stack made before push, which then runs without it.
 	push_password: Option<String>,
+	/// Unset in a stack made before the AI gateway, which then runs without it.
+	psyche_password: Option<String>,
 	storage_admin_key: String,
 	realtime_api_secret: String,
 	/// Where the shared servers reach the project's database: the database service's name.
@@ -179,6 +189,7 @@ fn settings() -> Result<Settings, String> {
 				.unwrap_or_else(|| OLD_LAYOUT.graphql_schema.into()),
 		},
 		push_password: env::optional("PUSH_DB_PASSWORD"),
+		psyche_password: env::optional("PSYCHE_DB_PASSWORD"),
 		storage_admin_key: env::required("STORAGE_ADMIN_API_KEY")?,
 		realtime_api_secret: env::required("REALTIME_API_JWT_SECRET")?,
 		tenant_db_host: env::optional("TENANT_DB_HOST").unwrap_or_else(|| "db".into()),
@@ -247,6 +258,11 @@ pub async fn run() -> Result<(), String> {
 		run_sql(&project, PUSH_SQL).await?;
 		set_password(&cluster, PUSH_ROLE, password).await?;
 		tracing::info!("push role ready");
+	}
+	if let Some(password) = &s.psyche_password {
+		run_sql(&project, PSYCHE_SQL).await?;
+		set_password(&cluster, PSYCHE_ROLE, password).await?;
+		tracing::info!("AI gateway role ready");
 	}
 
 	let http = Http::new();

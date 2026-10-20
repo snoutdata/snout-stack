@@ -71,8 +71,8 @@ pub fn fresh() -> Values {
 		pairs: vec![
 			(
 				"COMPOSE_PROFILES",
-				"objects,images,push".into(),
-				"Optional parts of the stack. `objects` is the bundled object store: remove it to keep files in your own S3 (see S3_ENDPOINT below). `images` renders resized images: remove it if you do not need that. `push` sends push notifications to iPhone, Android and the web.",
+				"objects,images,push,ai".into(),
+				"Optional parts of the stack. `objects` is the bundled object store: remove it to keep files in your own S3 (see S3_ENDPOINT below). `images` renders resized images: remove it if you do not need that. `push` sends push notifications to iPhone, Android and the web. `ai` is the AI gateway at /ai/v1, which calls the models you add with your own provider keys.",
 			),
 			(
 				"SNOUT_REF",
@@ -128,6 +128,16 @@ pub fn fresh() -> Values {
 				"PUSH_DB_PASSWORD",
 				keys::random(24),
 				"The push server's database role.",
+			),
+			(
+				"PSYCHE_DB_PASSWORD",
+				keys::random(24),
+				"The AI gateway's database role.",
+			),
+			(
+				"AI_EGRESS",
+				"public".into(),
+				"Where the AI gateway may send: `public` (https on the internet) or `private`, which also reaches this machine and its network (an Ollama beside it).",
 			),
 			(
 				"PUSH_VAPID_SUBJECT",
@@ -248,11 +258,12 @@ mod tests {
 	use super::*;
 
 	/// Settings rather than secrets: the same in every stack until someone changes them.
-	const FIXED: [&str; 12] = [
+	const FIXED: [&str; 13] = [
 		"COMPOSE_PROFILES",
 		"S3_ENDPOINT",
 		"S3_BUCKET",
 		"PUSH_VAPID_SUBJECT",
+		"AI_EGRESS",
 		"REST_DB_USER",
 		"REST_ANON_ROLE",
 		"REST_SCHEMAS",

@@ -21,6 +21,7 @@ pub enum Service {
 	Realtime,
 	Functions,
 	Push,
+	Ai,
 }
 
 impl Service {
@@ -41,6 +42,7 @@ impl Service {
 			Service::Realtime => "realtime",
 			Service::Functions => "functions",
 			Service::Push => "push",
+			Service::Ai => "ai",
 		}
 	}
 }
@@ -184,6 +186,13 @@ const PREFIXES: &[Prefix] = &[
 		prefix: "/push/v1",
 		service: Service::Push,
 		base: "/push/v1",
+		headers: &[],
+	},
+	// Psyche, the AI gateway, beside the database like push. Its routes carry /ai/v1 themselves.
+	Prefix {
+		prefix: "/ai/v1",
+		service: Service::Ai,
+		base: "/ai/v1",
 		headers: &[],
 	},
 ];
@@ -400,6 +409,46 @@ pub fn authorise(
 			status: 401,
 			message: "No API key found in request, or the key is not one of this project's.",
 			hint: Some("Send one of the project's keys as the `Snout-Key` header (or `apikey`)."),
+			code: "no_api_key",
+		});
+	}
+	Ok(role)
+}
+
+/// Whether a bearer token could be one of Psyche's callers: a Psyche key (`psy_` and 43 base64url
+/// characters) or a JWT (the project's keys, or a signed-in user's token). Psyche checks it; this
+/// only turns away what cannot be one.
+pub fn psyche_token_shaped(authorization: Option<&str>) -> bool {
+	let Some(token) = authorization
+		.and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")))
+		.map(str::trim)
+	else {
+		return false;
+	};
+	let base64url = |part: &str| {
+		!part.is_empty()
+			&& part
+				.bytes()
+				.all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+	};
+	if let Some(key) = token.strip_prefix("psy_") {
+		return key.len() == 43 && base64url(key);
+	}
+	let parts: Vec<&str> = token.split('.').collect();
+	parts.len() == 3 && parts.iter().all(|part| base64url(part))
+}
+
+/// The AI gateway authenticates its own callers: a Psyche key, a signed-in user's token or the
+/// project's keys, all as the Bearer token, which is all an OpenAI client sends. So no project key
+/// is asked for here, and a request with no credential of a possible shape is refused.
+pub fn authorise_ai(role: Option<Role>, authorization: Option<&str>) -> Result<Option<Role>, Refusal> {
+	if role.is_none() && !psyche_token_shaped(authorization) {
+		return Err(Refusal {
+			status: 401,
+			message: "The AI gateway needs a credential.",
+			hint: Some(
+				"Send a Psyche key (psy_…), a signed-in user's token or the project's server key as `Authorization: Bearer <token>`.",
+			),
 			code: "no_api_key",
 		});
 	}
@@ -788,6 +837,10 @@ mod tests {
 		assert!(service_for_path("/restv1").is_none());
 		assert!(service_for_path("/rest/v10").is_none());
 		assert!(service_for_path("/pushy/v1").is_none());
+		let ai = matched("/ai/v1/chat/completions");
+		assert_eq!(ai.service, Service::Ai);
+		assert_eq!(ai.upstream_path, "/ai/v1/chat/completions");
+		assert!(service_for_path("/aim/v1").is_none());
 		assert!(
 			service_for_path("/pg/tables").is_none(),
 			"the schema API is not served"
@@ -819,6 +872,24 @@ mod tests {
 			"minting a signed URL needs a key"
 		);
 		assert!(!is_open_path("GET", "/storage/v1/object/b/k"));
+	}
+
+	#[test]
+	fn the_ai_gateway_takes_its_own_callers_and_turns_away_what_cannot_be_one() {
+		let key = format!("Bearer psy_{}", "a".repeat(43));
+		assert!(authorise_ai(None, Some(&key)).is_ok());
+		assert!(authorise_ai(None, Some("Bearer aaa.bbb.ccc")).is_ok(), "a user's token");
+		assert!(authorise_ai(Some(Role::Anon), None).is_ok(), "a project key; Psyche refuses anon itself");
+		for bad in [
+			None,
+			Some("Bearer "),
+			Some("Bearer psy_short"),
+			Some("Basic dXNlcjpwYXNz"),
+			Some("Bearer not a token"),
+			Some("Bearer a.b"),
+		] {
+			assert_eq!(authorise_ai(None, bad).unwrap_err().status, 401, "{bad:?}");
+		}
 	}
 
 	#[test]
