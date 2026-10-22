@@ -171,7 +171,7 @@ Each server's own page lists the rest of its settings.
   address into, so auth's per-caller limits see callers and not the proxy. Realtime needs the proxy
   to pass WebSocket upgrades.
 - **Mail.** Set the `SMTP_*` values and leave `AUTH_MAILER_AUTOCONFIRM` off.
-- **Backups.** The data is in four volumes: `db-data` (the project), `metadata-data`,
+- **Backups.** The data is in four volumes: `db-data` (the project), `metadata-data-18`,
   `objects-data` (the files, unless they are in your own S3) and `functions-mount` (made again by
   `functions-deploy`). Back up `.env` with them. For the database, a dump while it runs:
   `docker compose exec db pg_dump -U snoutpod_admin -Fc <SNOUT_REF> > project.dump`.

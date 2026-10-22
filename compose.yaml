@@ -171,7 +171,7 @@ services:
 
   # ---- The metadata database of storage and Realtime: which projects they serve, and how.
   metadata:
-    image: docker.io/library/postgres:17-alpine # pins-allow: held to the platform's pin by a test
+    image: docker.io/library/postgres:18-alpine # pins-allow: held to the platform's pin by a test
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -180,8 +180,11 @@ services:
     configs:
       - source: metadata-storage-db
         target: /docker-entrypoint-initdb.d/10-storage.sql
+    # Its own volume since 18 (was `metadata-data`, a 17 directory 18 will not open). It holds
+    # only what `setup` registers on every start, so a stack made on 17 starts on an empty one
+    # and is registered again; the old volume is left alone.
     volumes:
-      - metadata-data:/var/lib/postgresql/data
+      - metadata-data-18:/var/lib/postgresql
     healthcheck:
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
       interval: 2s
@@ -398,6 +401,6 @@ networks:
 
 volumes:
   db-data: {}
-  metadata-data: {}
+  metadata-data-18: {}
   objects-data: {}
   functions-mount: {}
