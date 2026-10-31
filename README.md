@@ -264,8 +264,7 @@ Newest first. To take a release, follow Upgrades above: each server is pinned by
   trusted the public web roots alone, whatever the runtime's environment said, so a function could not
   call a server whose certificate your own CA signed. Set `DENO_CERT` in the `functions` service to a
   PEM file mounted into it, and every certificate in that file is trusted besides the public roots.
-  Unset, nothing changes. A file that cannot be read, or holds no certificate, fails a function's TLS
-  with the reason and leaves the runtime running.
+  Unset, nothing changes.
 
 ### 0.1.12, 2026-10-19: the AI gateway
 
