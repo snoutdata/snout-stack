@@ -258,6 +258,15 @@ the new URL and keys (or keep the old ones by setting `JWT_SECRET`, `ANON_KEY` a
 Newest first. To take a release, follow Upgrades above: each server is pinned by version in
 `compose.yaml`, and your `.env` and volumes stay as they are.
 
+### Not released yet: snout-functions 0.2.9, a function's TLS trusts your own CA
+
+- **snout-functions 0.2.9: `DENO_CERT` reaches a function's `fetch`.** A function's outgoing TLS
+  trusted the public web roots alone, whatever the runtime's environment said, so a function could not
+  call a server whose certificate your own CA signed. Set `DENO_CERT` in the `functions` service to a
+  PEM file mounted into it, and every certificate in that file is trusted besides the public roots.
+  Unset, nothing changes. A file that cannot be read, or holds no certificate, fails a function's TLS
+  with the reason and leaves the runtime running.
+
 ### 0.1.12, 2026-10-19: the AI gateway
 
 Two images move: `snout-stack` 0.1.12, and snout-psyche 0.1.0 joins the stack.
