@@ -420,7 +420,10 @@ pub fn authorise(
 /// only turns away what cannot be one.
 pub fn psyche_token_shaped(authorization: Option<&str>) -> bool {
 	let Some(token) = authorization
-		.and_then(|v| v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")))
+		.and_then(|v| {
+			v.strip_prefix("Bearer ")
+				.or_else(|| v.strip_prefix("bearer "))
+		})
 		.map(str::trim)
 	else {
 		return false;
@@ -441,7 +444,10 @@ pub fn psyche_token_shaped(authorization: Option<&str>) -> bool {
 /// The AI gateway authenticates its own callers: a Psyche key, a signed-in user's token or the
 /// project's keys, all as the Bearer token, which is all an OpenAI client sends. So no project key
 /// is asked for here, and a request with no credential of a possible shape is refused.
-pub fn authorise_ai(role: Option<Role>, authorization: Option<&str>) -> Result<Option<Role>, Refusal> {
+pub fn authorise_ai(
+	role: Option<Role>,
+	authorization: Option<&str>,
+) -> Result<Option<Role>, Refusal> {
 	if role.is_none() && !psyche_token_shaped(authorization) {
 		return Err(Refusal {
 			status: 401,
@@ -878,8 +884,14 @@ mod tests {
 	fn the_ai_gateway_takes_its_own_callers_and_turns_away_what_cannot_be_one() {
 		let key = format!("Bearer psy_{}", "a".repeat(43));
 		assert!(authorise_ai(None, Some(&key)).is_ok());
-		assert!(authorise_ai(None, Some("Bearer aaa.bbb.ccc")).is_ok(), "a user's token");
-		assert!(authorise_ai(Some(Role::Anon), None).is_ok(), "a project key; Psyche refuses anon itself");
+		assert!(
+			authorise_ai(None, Some("Bearer aaa.bbb.ccc")).is_ok(),
+			"a user's token"
+		);
+		assert!(
+			authorise_ai(Some(Role::Anon), None).is_ok(),
+			"a project key; Psyche refuses anon itself"
+		);
 		for bad in [
 			None,
 			Some("Bearer "),
